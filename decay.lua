@@ -1,7 +1,7 @@
 -- ==============================================================================
--- TeteKubb Hub (V11 Base - PC Anti-Jitter Fix & No Hitbox Expander)
--- Features: Smooth Predictive Aimbot (PC & Mobile Identical), No Recoil,
---           Fullbright (Key: B), Auto Ore Spark & Full Modular ESP
+-- TeteKubb Hub (V14.1 - Fixed GeneratedMonuments Error + Hyper-Smooth + Vacuum)
+-- Features: 0-Lag Cached ESP, Auto-Loot Crates/Bags/Ground, Target Loadout HUD,
+--           Smooth Predictive Aimbot, No Recoil, Fullbright (B), Auto Ore Spark
 -- ==============================================================================
 
 local Players = game:GetService("Players")
@@ -77,20 +77,20 @@ if hookmetamethod and not GlobalEnv._RustACBypassedV11 then
 end
 
 -- ==============================================================================
--- [2] GLOBAL CONFIG (เริ่มต้นเป็น false ทั้งหมด เปิด-ปิดได้ตามสั่ง 100%)
+-- [2] GLOBAL CONFIG
 -- ==============================================================================
 local Config = {
-    -- ระบบ Aimbot ล็อคหัว / ล็อคตัว + ดักทางคนวิ่ง (ตัดขยายหัวออกแล้ว)
+    -- ระบบ Aimbot
     AimlockEnabled = false,
-    AimActivationMode = "Always", -- "Always" (ล็อคทันทีในวง FOV), "HoldClick" (ล็อคตอนกดคลิกยิง/ซูม)
-    TargetPartMode = "Head", -- "Head" (ล็อคหัว), "Torso" (ล็อคตัว), "ClosestPart" (ส่วนที่ใกล้เป้าสุด)
-    AirborneBodyAim = true, -- สลับล็อคลำตัวอัตโนมัติเวลาศัตรูกระโดด
-    StickyAim = true, -- ล็อคเกาะเป้าหมายเดิมไม่สวิงมั่ว
-    AimSmoothness = 0.50, -- ความไวในการดูดตามคนวิ่ง (0.10 - 0.95)
-    UsePrediction = true, -- คำนวณดักหน้าเวลาคนวิ่ง
-    PredictionMultiplier = 1.05, -- ตัวคูณระยะดักหน้าคนวิ่ง
-    BulletDropCompensation = true, -- ชดเชยกระสุนตกตามระยะทาง
-    BreakawayThreshold = 12.0, -- แรงสะบัดเมาส์เพื่อดึงเป้าหลุดล็อค
+    AimActivationMode = "Always",
+    TargetPartMode = "Head",
+    AirborneBodyAim = true,
+    StickyAim = true,
+    AimSmoothness = 0.50,
+    UsePrediction = true,
+    PredictionMultiplier = 1.05,
+    BulletDropCompensation = true,
+    BreakawayThreshold = 12.0,
     MaxAimDistance = 900,
     FOVRadius = 150,
     ShowFOV = false,
@@ -100,42 +100,65 @@ local Config = {
     WallCheck = false,
     TeamCheck = false,
 
-    -- ปุ่มลัดคีย์บอร์ด (Keybinds)
+    -- ระบบเช็คของผู้เล่นที่ล็อคเป้า (Target Inspector)
+    ShowTargetInventory = true,
+
+    -- ปุ่มลัดคีย์บอร์ด
     Key_ToggleAimbot = Enum.KeyCode.X,
     Key_SwitchPart = Enum.KeyCode.V,
     Key_ToggleFullbright = Enum.KeyCode.B,
 
-    -- ระบบลดแรงดีดปืน (No Recoil)
+    -- ระบบลดแรงดีดปืน
     NoRecoilEnabled = false,
     RecoilScale = 0,
 
-    -- ระบบความสว่างตอนกลางคืน & ตัดหมอก (Fullbright)
+    -- ระบบความสว่าง & หญ้า
     FullbrightEnabled = false,
     FullbrightLevel = 2.5,
     RemoveFogAndShadows = true,
+    HideTerrainGrass = false,
 
-    -- ระบบตีแร่โดนจุด Spark อัตโนมัติ
+    -- ระบบตีแร่โดนจุด Spark
     AutoSparkEnabled = false,
     ShowSparkESP = true,
     SparkRange = 10,
 
-    -- ระบบ ESP แยกหมวดหมู่
+    -- ระบบดูดของอัตโนมัติ (Auto-Loot & Vacuum)
+    AutoPickupEnabled = false,
+    AutoPickupRange = 14,
+    AutoLootOpenContainer = false,
+    AutoLootNearbyContainers = false,
+    LootFilterMode = "All",
+
+    -- ระบบเช็คของในกล่อง
+    ShowCrateContents = true,
+    AutoFetchStorage = false,
+
+    -- ระบบ ESP
     ESP_Players = false,
     ESP_Scientists = false,
     ESP_Sleepers = false,
     ESP_BodyBags = false,
+    ESP_TC = false,
     ESP_BaseOwner = false,
-    ESP_Storage = false,
-    ESP_OnlyUnlockedStorage = false,
     ESP_Traps = false,
+
     ESP_StoneOre = false,
     ESP_MetalOre = false,
     ESP_SulfurOre = false,
-    ESP_ClothAndFood = false,
+    ESP_GrassCloth = false,
+
+    ESP_Storage = false,
+    ESP_OnlyUnlockedStorage = false,
+    ESP_LootCrates = false,
+    ESP_MilitaryCrates = false,
+    ESP_Barrels = false,
+    ESP_FuelBarrels = false,
     ESP_DroppedItems = false,
-    ESP_WorldCrates = false,
+
     PlayerRenderDistance = 1200,
-    WorldRenderDistance = 600,
+    WorldRenderDistance = 650,
+    MaxWorldESPCount = 45,
 }
 
 local CurrentLockedModel = nil
@@ -143,9 +166,10 @@ local CurrentLockedPart = nil
 local CurrentPredictedPos = nil
 local CurrentTargetName = "None"
 local CachedScientists = {}
+local CachedNearestSpark = nil
 
 -- ==============================================================================
--- [3] FULLBRIGHT & SETAMBIENT BLOCKER (บล็อก ReplicatedStorage.TimeService.SetAmbient)
+-- [3] FULLBRIGHT, TERRAIN GRASS & SETAMBIENT BLOCKER
 -- ==============================================================================
 local SetAmbientRemote = nil
 pcall(function()
@@ -229,6 +253,14 @@ local function ApplyFullbrightState(enabled)
     end
 end
 
+local function ApplyTerrainGrassState(hideGrass)
+    if sethiddenproperty and workspace.Terrain then
+        pcall(function()
+            sethiddenproperty(workspace.Terrain, "Decoration", not hideGrass)
+        end)
+    end
+end
+
 if SetAmbientRemote then
     AddConnection(SetAmbientRemote.OnClientEvent:Connect(function()
         if Config.FullbrightEnabled then
@@ -237,7 +269,7 @@ if SetAmbientRemote then
     end))
 end
 
-AddConnection(RunService.Heartbeat:Connect(function()
+AddConnection(Lighting.Changed:Connect(function()
     if Config.FullbrightEnabled then
         Lighting.Ambient = Color3.fromRGB(210, 210, 210)
         Lighting.OutdoorAmbient = Color3.fromRGB(210, 210, 210)
@@ -247,30 +279,40 @@ AddConnection(RunService.Heartbeat:Connect(function()
             Lighting.FogEnd = 100000
             Lighting.FogStart = 100000
             Lighting.GlobalShadows = false
-            for _, child in ipairs(Lighting:GetChildren()) do
-                if child:IsA("Atmosphere") then
-                    if not OriginalAtmosphere[child] then
-                        OriginalAtmosphere[child] = { Density = child.Density, Haze = child.Haze, Glare = child.Glare }
-                    end
-                    child.Density = 0
-                    child.Haze = 0
-                end
-            end
         end
     end
 end))
 
 -- ==============================================================================
--- [4] LOAD GAME ITEM DATA & NO RECOIL HOOK
+-- [4] LOAD GAME MODULES, REMOTES & NO RECOIL HOOK
 -- ==============================================================================
 local GameItemData = nil
 local GameAmmoTypes = nil
+local GameStorageView = nil
+local PickUpRequestRemote = nil
+local AddPlayerToStorageRemote = nil
+local QuickMoveFromStorageRemote = nil
 
 pcall(function()
     local itemMod = ReplicatedStorage:WaitForChild("ItemData", 5)
     if itemMod then GameItemData = require(itemMod).Items end
     local ammoMod = ReplicatedStorage:WaitForChild("AmmoTypes", 5)
     if ammoMod then GameAmmoTypes = require(ammoMod) end
+    local svMod = ReplicatedStorage:WaitForChild("StorageView", 5)
+    if svMod then GameStorageView = require(svMod) end
+
+    local lootSys = ReplicatedStorage:WaitForChild("LootSystem", 5)
+    local lootRemotes = lootSys and lootSys:WaitForChild("RemoteEvents", 5)
+    if lootRemotes then
+        PickUpRequestRemote = lootRemotes:FindFirstChild("PickUpRequest")
+        AddPlayerToStorageRemote = lootRemotes:FindFirstChild("AddPlayerToStorage")
+    end
+
+    local invFolder = ReplicatedStorage:WaitForChild("Inventory", 5)
+    local storageRemotes = invFolder and invFolder:WaitForChild("StorageRemoteEvents", 5)
+    if storageRemotes then
+        QuickMoveFromStorageRemote = storageRemotes:FindFirstChild("QuickMoveFromStorage")
+    end
 end)
 
 pcall(function()
@@ -292,6 +334,50 @@ pcall(function()
         end
     end
 end)
+
+local ValuableItemsMap = {
+    ["Scrap"] = true, ["Cloth"] = true, ["Metal Ore"] = true, ["Metal Bar"] = true,
+    ["High Quality Metal Ore"] = true, ["High Quality Metal Bar"] = true,
+    ["Sulfur Ore"] = true, ["Sulfur"] = true, ["Gunpowder"] = true, ["Fuel"] = true,
+    ["Diesel Fuel"] = true, ["C4"] = true, ["Dynamite"] = true, ["Supply Signal"] = true,
+    ["Medical Syringe"] = true, ["Bandage"] = true, ["Jackhammer"] = true,
+    ["Red Keycard"] = true, ["Blue Keycard"] = true, ["Green Keycard"] = true,
+}
+
+local function ShouldLootItem(itemName)
+    if not itemName or itemName == "" then return false end
+    if Config.LootFilterMode == "All" then return true end
+    if ValuableItemsMap[itemName] then return true end
+    if GameItemData and GameItemData[itemName] then
+        local t = GameItemData[itemName].Type
+        if t == "Gun" or t == "Ammo" or t == "Component" or t == "Attachment" or t == "Clothes" then
+            return true
+        end
+    end
+    return false
+end
+
+local ClothingAssetMap = {
+    ["13319023083"] = { Name = "Burlap Shirt", Protection = 10 },
+    ["13315993089"] = { Name = "Burlap Trousers", Protection = 10 },
+    ["16001675719"] = { Name = "Hoodie", Protection = 20 },
+    ["112146303712876"] = { Name = "Pants", Protection = 15 },
+    ["117675966308035"] = { Name = "Hide Vest", Protection = 12 },
+    ["140352819642633"] = { Name = "Hide Pants", Protection = 12 },
+}
+
+local ArmorKeywords = {
+    ["Military Helmet"] = 50,
+    ["Military Vest"] = 25,
+    ["Coffee Can Helmet"] = 35,
+    ["Hazmat Suit"] = 30,
+    ["Hazmat"] = 30,
+    ["Road Sign Jacket"] = 20,
+    ["Road Sign Kilt"] = 20,
+    ["Wood Armor Helmet"] = 15,
+    ["Wood Chestplate"] = 10,
+    ["Wood Armor Pants"] = 10,
+}
 
 local MiningTools = {
     ["Rock"] = true,
@@ -384,8 +470,12 @@ local function GetCurrentWeaponBallistics()
 end
 
 -- ==============================================================================
--- [5] CHARACTER RESOLVER & TEAM CHECK
+-- [5] CHARACTER RESOLVER, TEAM CHECK & TARGET/CRATE INSPECTOR LOGIC
 -- ==============================================================================
+local PlayerWeaponHistory = {}
+local CachedPlayerWeapon = {}
+local StorageFetchCooldown = {}
+
 local function GetPlayerCharacter(player)
     if not player then return nil end
     if player.Character and player.Character.Parent then
@@ -436,13 +526,158 @@ local function IsTeammate(player)
     return false
 end
 
+local function InspectCharacterLoadout(char)
+    if not char or not char.Parent then return nil end
+
+    local heldWeapon = "Unarmed"
+    local attachmentsList = {}
+    local armorSet = {}
+    local totalProtection = 0
+
+    local history = PlayerWeaponHistory[char.Name]
+    if not history then
+        history = {}
+        PlayerWeaponHistory[char.Name] = history
+    end
+
+    for _, child in ipairs(char:GetChildren()) do
+        if child:IsA("Tool") or (child:IsA("Model") and (child:FindFirstChild("GunComponents") or child:FindFirstChild("ToolComponents") or child:FindFirstChild("Handle"))) then
+            heldWeapon = child.Name
+            history[child.Name] = true
+
+            local eqAtt = child:FindFirstChild("EquippedAttachments")
+            if eqAtt then
+                for _, att in ipairs(eqAtt:GetChildren()) do
+                    table.insert(attachmentsList, att.Name)
+                end
+            else
+                if child:GetAttribute("HasScope") then table.insert(attachmentsList, "8x Scope") end
+                if child:GetAttribute("HasLaser") then table.insert(attachmentsList, "Weapon Laser") end
+                if child:GetAttribute("HasFlashlight") and not child:GetAttribute("HasLaser") then
+                    table.insert(attachmentsList, "Flashlight")
+                end
+            end
+        end
+
+        if child:IsA("Shirt") or child:IsA("Pants") then
+            local template = tostring(child:IsA("Shirt") and child.ShirtTemplate or child.PantsTemplate)
+            for assetId, info in pairs(ClothingAssetMap) do
+                if string.find(template, assetId, 1, true) and not armorSet[info.Name] then
+                    armorSet[info.Name] = true
+                    totalProtection = totalProtection + info.Protection
+                end
+            end
+        end
+
+        for armorName, prot in pairs(ArmorKeywords) do
+            if string.find(child.Name, armorName, 1, true) and not armorSet[armorName] then
+                armorSet[armorName] = true
+                totalProtection = totalProtection + prot
+            end
+        end
+    end
+
+    CachedPlayerWeapon[char] = heldWeapon
+
+    local extraItems = {}
+    local storageFolder = char:FindFirstChild("Storage") or (GameStorageView and GameStorageView.IsLoaded(char) and GameStorageView.Get(char))
+    if storageFolder then
+        local counts = {}
+        for _, slot in ipairs(storageFolder:GetChildren()) do
+            local iName = slot:FindFirstChild("ItemName")
+            local iAmt = slot:FindFirstChild("Amount")
+            if iName and iName.Value ~= "" then
+                local amt = (iAmt and tonumber(iAmt.Value)) or 1
+                counts[iName.Value] = (counts[iName.Value] or 0) + amt
+            end
+        end
+        for name, amt in pairs(counts) do
+            table.insert(extraItems, string.format("%s x%d", name, amt))
+        end
+    end
+
+    local knownWeapons = {}
+    for wName, _ in pairs(history) do
+        if wName ~= heldWeapon then
+            table.insert(knownWeapons, wName)
+        end
+    end
+
+    local armorList = {}
+    for aName, _ in pairs(armorSet) do
+        table.insert(armorList, aName)
+    end
+
+    return {
+        HeldWeapon = heldWeapon,
+        Attachments = attachmentsList,
+        KnownWeapons = knownWeapons,
+        ArmorList = armorList,
+        Protection = math.min(totalProtection, 90),
+        StorageItems = extraItems
+    }
+end
+
+local function BuildContainerItemsSummary(containerObj, distToPlayer)
+    if not Config.ShowCrateContents or not containerObj then return "" end
+
+    local storageFolder = containerObj:FindFirstChild("Storage")
+    if not storageFolder and GameStorageView then
+        if GameStorageView.IsLoaded(containerObj) then
+            storageFolder = GameStorageView.Get(containerObj)
+        elseif (Config.AutoFetchStorage or Config.AutoLootNearbyContainers) and AddPlayerToStorageRemote and distToPlayer <= 16 then
+            local now = os.clock()
+            if not StorageFetchCooldown[containerObj] or (now - StorageFetchCooldown[containerObj]) > 4.5 then
+                StorageFetchCooldown[containerObj] = now
+                pcall(function()
+                    AddPlayerToStorageRemote:FireServer(containerObj)
+                end)
+            end
+        end
+    end
+
+    if not storageFolder then return "" end
+
+    local itemCounts = {}
+    local itemOrder = {}
+    for _, slot in ipairs(storageFolder:GetChildren()) do
+        local itemNameVal = slot:FindFirstChild("ItemName")
+        local amountVal = slot:FindFirstChild("Amount")
+        if itemNameVal and itemNameVal.Value ~= "" then
+            local name = itemNameVal.Value
+            local amt = (amountVal and tonumber(amountVal.Value)) or 1
+            if not itemCounts[name] then
+                itemCounts[name] = 0
+                table.insert(itemOrder, name)
+            end
+            itemCounts[name] = itemCounts[name] + amt
+        end
+    end
+
+    if #itemOrder == 0 then
+        return "\n[ว่างเปล่า]"
+    end
+
+    local displayList = {}
+    local maxShow = math.min(#itemOrder, 4)
+    for i = 1, maxShow do
+        local name = itemOrder[i]
+        table.insert(displayList, string.format("%s x%d", name, itemCounts[name]))
+    end
+    if #itemOrder > 4 then
+        table.insert(displayList, string.format("+%d", #itemOrder - 4))
+    end
+
+    return "\nของ: " .. table.concat(displayList, ", ")
+end
+
 -- ==============================================================================
--- [6] STABLE VELOCITY TRACKER & BALLISTICS PREDICTION (ไร้การสั่นบน PC)
+-- [6] STABLE VELOCITY TRACKER & BALLISTICS PREDICTION
 -- ==============================================================================
 local VelocityTracker = {}
 
 local function GetTargetVelocity(model, rootPart)
-    if not model or not rootPart then return Vector3.zero end
+    if not model or not rootPart or not rootPart:IsA("BasePart") then return Vector3.zero end
     local now = os.clock()
     local currentPos = rootPart.Position
     local record = VelocityTracker[model]
@@ -457,7 +692,6 @@ local function GetTargetVelocity(model, rootPart)
     end
 
     local dt = now - record.LastTime
-    -- คำนวณทุกๆ 0.04 วินาทีเพื่อป้องกันค่ากระโดดระหว่างเฟรมบน PC ที่มี FPS สูง
     if dt >= 0.04 then
         local deltaVel = (currentPos - record.LastPos) / dt
         local engineVel = rootPart.AssemblyLinearVelocity or Vector3.zero
@@ -475,7 +709,6 @@ local function GetTargetVelocity(model, rootPart)
             rawVel = Vector3.zero
         end
 
-        -- กรองความเร็วให้สมูทนิ่งสนิท ไม่ทำให้เป้าส่ายซ้ายขวา
         record.SmoothedVel = record.SmoothedVel:Lerp(rawVel, 0.35)
         if record.SmoothedVel.Magnitude < 1.8 then
             record.SmoothedVel = Vector3.zero
@@ -489,13 +722,16 @@ local function GetTargetVelocity(model, rootPart)
 end
 
 local function CalculatePredictedAimPosition(targetPart, targetModel)
-    if not targetPart then return nil end
+    if not targetPart or not targetPart:IsA("BasePart") then return nil end
     local basePos = targetPart.Position
     if not Config.UsePrediction or not targetModel then
         return basePos
     end
 
-    local rootPart = targetModel:FindFirstChild("HumanoidRootPart") or targetPart
+    local rootPart = targetModel:FindFirstChild("HumanoidRootPart")
+    if not (rootPart and rootPart:IsA("BasePart")) then
+        rootPart = targetPart
+    end
     local velocity = GetTargetVelocity(targetModel, rootPart)
 
     local camPos = Camera.CFrame.Position
@@ -524,7 +760,7 @@ end
 -- ==============================================================================
 local function IsTargetVisible(targetPart, targetModel)
     if not Config.WallCheck then return true end
-    if not targetPart then return false end
+    if not targetPart or not targetPart:IsA("BasePart") then return false end
 
     local origin = Camera.CFrame.Position
     local direction = targetPart.Position - origin
@@ -561,12 +797,19 @@ local function IsTargetVisible(targetPart, targetModel)
     return true
 end
 
+local function FindBasePartChild(parent, name)
+    if not parent then return nil end
+    local c = parent:FindFirstChild(name)
+    if c and c:IsA("BasePart") then return c end
+    return nil
+end
+
 local function GetSmartAimPart(character)
     if not character then return nil end
     local hum = character:FindFirstChildOfClass("Humanoid")
-    local root = character:FindFirstChild("HumanoidRootPart")
-    local head = character:FindFirstChild("Head")
-    local torso = character:FindFirstChild("Torso") or character:FindFirstChild("UpperTorso") or root
+    local root = FindBasePartChild(character, "HumanoidRootPart")
+    local head = FindBasePartChild(character, "Head")
+    local torso = FindBasePartChild(character, "Torso") or FindBasePartChild(character, "UpperTorso") or root
 
     if Config.AirborneBodyAim and root then
         local velY = math.abs(root.AssemblyLinearVelocity.Y)
@@ -583,8 +826,8 @@ local function GetSmartAimPart(character)
         local bestPart = head or torso
         local minDist = math.huge
         for _, partName in ipairs({ "Head", "UpperTorso", "Torso", "HumanoidRootPart", "LowerTorso" }) do
-            local p = character:FindFirstChild(partName)
-            if p and p:IsA("BasePart") then
+            local p = FindBasePartChild(character, partName)
+            if p then
                 local sp, onScreen = Camera:WorldToViewportPoint(p.Position)
                 if onScreen then
                     local d = (Vector2.new(sp.X, sp.Y) - screenCenter).Magnitude
@@ -615,39 +858,51 @@ local function GetActiveSparkPart(oreModel)
         local firstSpot = sparkSpots:FindFirstChildWhichIsA("BasePart")
         if firstSpot then return firstSpot end
     end
-    return oreModel.PrimaryPart or oreModel:FindFirstChildWhichIsA("BasePart")
+    if oreModel.PrimaryPart and oreModel.PrimaryPart:IsA("BasePart") then
+        return oreModel.PrimaryPart
+    end
+    return oreModel:FindFirstChildWhichIsA("BasePart")
 end
 
-local function GetNearestOreSpark(maxDist)
-    local char = GetLocalCharacter()
-    local root = char and char:FindFirstChild("HumanoidRootPart")
-    local oreSpawns = workspace:FindFirstChild("OreSpawns")
-    if not root or not oreSpawns then return nil, nil end
+task.spawn(function()
+    while ScriptRunning do
+        pcall(function()
+            if Config.AutoSparkEnabled then
+                local char = GetLocalCharacter()
+                local root = FindBasePartChild(char, "HumanoidRootPart")
+                local oreSpawns = workspace:FindFirstChild("OreSpawns")
+                local bestSparkPart = nil
+                local shortestDist = Config.SparkRange
 
-    local bestSparkPart, bestOre = nil, nil
-    local shortestDist = maxDist or Config.SparkRange
-
-    for _, zone in ipairs(oreSpawns:GetChildren()) do
-        for _, ore in ipairs(zone:GetChildren()) do
-            local primary = ore.PrimaryPart or ore:FindFirstChild("Top") or ore:FindFirstChildWhichIsA("BasePart")
-            if primary then
-                local dist = (primary.Position - root.Position).Magnitude
-                if dist <= shortestDist then
-                    local sparkPart = GetActiveSparkPart(ore)
-                    if sparkPart then
-                        shortestDist = dist
-                        bestSparkPart = sparkPart
-                        bestOre = ore
+                if root and oreSpawns then
+                    for _, zone in ipairs(oreSpawns:GetChildren()) do
+                        for _, ore in ipairs(zone:GetChildren()) do
+                            local primary = (ore.PrimaryPart and ore.PrimaryPart:IsA("BasePart") and ore.PrimaryPart)
+                                or FindBasePartChild(ore, "Top")
+                            if primary then
+                                local dist = (primary.Position - root.Position).Magnitude
+                                if dist <= shortestDist then
+                                    local sparkPart = GetActiveSparkPart(ore)
+                                    if sparkPart then
+                                        shortestDist = dist
+                                        bestSparkPart = sparkPart
+                                    end
+                                end
+                            end
+                        end
                     end
                 end
+                CachedNearestSpark = bestSparkPart
+            else
+                CachedNearestSpark = nil
             end
-        end
+        end)
+        task.wait(0.14)
     end
-    return bestSparkPart, bestOre
-end
+end)
 
 -- ==============================================================================
--- [8] UI OVERLAY (FOV CIRCLE, TARGET LINE, STATUS HUD & ESP)
+-- [8] UI OVERLAY (FOV, TARGET LINE, STATUS HUD & TARGET INSPECTOR PANEL)
 -- ==============================================================================
 local OverlayGui = Instance.new("ScreenGui")
 OverlayGui.Name = "RustSafeOverlay"
@@ -680,6 +935,50 @@ HUDStroke.Color = Color3.fromRGB(90, 90, 110)
 HUDStroke.Thickness = 1.2
 HUDStroke.Parent = StatusHUD
 
+local TargetInspectorFrame = Instance.new("Frame")
+TargetInspectorFrame.Name = "TargetInspectorFrame"
+TargetInspectorFrame.Size = UDim2.fromOffset(310, 128)
+TargetInspectorFrame.Position = UDim2.new(0.5, 175, 0.5, -64)
+TargetInspectorFrame.BackgroundColor3 = Color3.fromRGB(16, 18, 24)
+TargetInspectorFrame.BackgroundTransparency = 0.18
+TargetInspectorFrame.Visible = false
+TargetInspectorFrame.Parent = OverlayGui
+
+local InspCorner = Instance.new("UICorner")
+InspCorner.CornerRadius = UDim.new(0, 10)
+InspCorner.Parent = TargetInspectorFrame
+
+local InspStroke = Instance.new("UIStroke")
+InspStroke.Color = Color3.fromRGB(255, 75, 75)
+InspStroke.Thickness = 1.5
+InspStroke.Parent = TargetInspectorFrame
+
+local InspTitle = Instance.new("TextLabel")
+InspTitle.Size = UDim2.new(1, -16, 0, 24)
+InspTitle.Position = UDim2.fromOffset(8, 6)
+InspTitle.BackgroundTransparency = 1
+InspTitle.Font = Enum.Font.GothamBold
+InspTitle.TextSize = 14
+InspTitle.TextXAlignment = Enum.TextXAlignment.Left
+InspTitle.TextColor3 = Color3.fromRGB(255, 95, 95)
+InspTitle.TextStrokeTransparency = 0.2
+InspTitle.Text = "เป้าหมาย: None"
+InspTitle.Parent = TargetInspectorFrame
+
+local InspBody = Instance.new("TextLabel")
+InspBody.Size = UDim2.new(1, -16, 1, -34)
+InspBody.Position = UDim2.fromOffset(8, 30)
+InspBody.BackgroundTransparency = 1
+InspBody.Font = Enum.Font.RobotoMono
+InspBody.TextSize = 12
+InspBody.TextXAlignment = Enum.TextXAlignment.Left
+InspBody.TextYAlignment = Enum.TextYAlignment.Top
+InspBody.TextWrapped = true
+InspBody.TextColor3 = Color3.fromRGB(235, 235, 245)
+InspBody.TextStrokeTransparency = 0.25
+InspBody.Text = ""
+InspBody.Parent = TargetInspectorFrame
+
 local FOVCircleFrame = Instance.new("Frame")
 FOVCircleFrame.Name = "FOVCircle"
 FOVCircleFrame.AnchorPoint = Vector2.new(0.5, 0.5)
@@ -710,11 +1009,6 @@ local PredCorner = Instance.new("UICorner")
 PredCorner.CornerRadius = UDim.new(1, 0)
 PredCorner.Parent = PredictionDot
 
-local PredStroke = Instance.new("UIStroke")
-PredStroke.Color = Color3.fromRGB(0, 0, 0)
-PredStroke.Thickness = 1.5
-PredStroke.Parent = PredictionDot
-
 local TargetLine = Instance.new("Frame")
 TargetLine.Name = "TargetLine"
 TargetLine.AnchorPoint = Vector2.new(0.5, 0.5)
@@ -737,7 +1031,7 @@ SparkMarker.Visible = false
 SparkMarker.Parent = OverlayGui
 
 -- ==============================================================================
--- [9] V11 SMOOTH CAMERA AIMBOT ENGINE (ทำให้ในคอมนิ่งเหมือนมือถือ 100%)
+-- [9] SMOOTH CAMERA AIMBOT ENGINE & TARGET INSPECTOR UPDATER
 -- ==============================================================================
 local function FindBestTargetInFOV()
     local screenCenter = Camera.ViewportSize / 2
@@ -830,6 +1124,8 @@ local function GetKeyNameSafe(keyItem)
     return tostring(keyItem or "None")
 end
 
+local LastInspectorUpdate = 0
+
 local function UpdateAimbotStep(dt)
     if not ScriptRunning then return end
     Camera = workspace.CurrentCamera
@@ -848,33 +1144,31 @@ local function UpdateAimbotStep(dt)
     if Config.ShowStatusHUD then
         local aimTxt = Config.AimlockEnabled and "ON" or "OFF"
         local fbTxt = Config.FullbrightEnabled and "ON" or "OFF"
-        StatusHUD.Text = string.format(
-            "TeteKubb Hub | [%s] Aimbot: %s | [%s] เล็ง: %s | [%s] แสง: %s | เป้า: %s",
+        local newHudText = string.format(
+            "TeteKubb V14.1 | [%s] Aimbot: %s | [%s] เล็ง: %s | [%s] แสง: %s | เป้า: %s",
             GetKeyNameSafe(Config.Key_ToggleAimbot), aimTxt,
             GetKeyNameSafe(Config.Key_SwitchPart), tostring(Config.TargetPartMode),
             GetKeyNameSafe(Config.Key_ToggleFullbright), fbTxt,
             tostring(CurrentTargetName)
         )
+        if StatusHUD.Text ~= newHudText then
+            StatusHUD.Text = newHudText
+        end
     end
 
-    if Config.AutoSparkEnabled then
-        local sparkPart = GetNearestOreSpark(Config.SparkRange)
-        if sparkPart then
-            local spScreen, onScreen = Camera:WorldToViewportPoint(sparkPart.Position)
-            if onScreen and Config.ShowSparkESP then
-                SparkMarker.Position = UDim2.fromOffset(spScreen.X, spScreen.Y)
-                SparkMarker.Visible = true
-            else
-                SparkMarker.Visible = false
-            end
-
-            local isAttacking = UserInputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton1) or IsMobileAttacking
-            if isAttacking and IsHoldingMiningTool() and not IsGameMenuOpen() then
-                local alpha = 1 - ((1 - 0.55) ^ (frameDt * 60))
-                Camera.CFrame = Camera.CFrame:Lerp(CFrame.lookAt(Camera.CFrame.Position, sparkPart.Position), math.clamp(alpha, 0.05, 0.95))
-            end
+    if Config.AutoSparkEnabled and CachedNearestSpark and CachedNearestSpark.Parent then
+        local spScreen, onScreen = Camera:WorldToViewportPoint(CachedNearestSpark.Position)
+        if onScreen and Config.ShowSparkESP then
+            SparkMarker.Position = UDim2.fromOffset(spScreen.X, spScreen.Y)
+            SparkMarker.Visible = true
         else
             SparkMarker.Visible = false
+        end
+
+        local isAttacking = UserInputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton1) or IsMobileAttacking
+        if isAttacking and IsHoldingMiningTool() and not IsGameMenuOpen() then
+            local alpha = 1 - ((1 - 0.55) ^ (frameDt * 60))
+            Camera.CFrame = Camera.CFrame:Lerp(CFrame.lookAt(Camera.CFrame.Position, CachedNearestSpark.Position), math.clamp(alpha, 0.05, 0.95))
         end
     else
         SparkMarker.Visible = false
@@ -887,6 +1181,7 @@ local function UpdateAimbotStep(dt)
         CurrentTargetName = "None"
         PredictionDot.Visible = false
         TargetLine.Visible = false
+        TargetInspectorFrame.Visible = false
         FOVStroke.Color = Color3.fromRGB(255, 255, 255)
         return
     end
@@ -923,6 +1218,35 @@ local function UpdateAimbotStep(dt)
         FOVStroke.Color = Color3.fromRGB(255, 65, 65)
         CurrentPredictedPos = CalculatePredictedAimPosition(CurrentLockedPart, CurrentLockedModel)
 
+        if Config.ShowTargetInventory then
+            TargetInspectorFrame.Visible = true
+            local now = os.clock()
+            if (now - LastInspectorUpdate) >= 0.20 then
+                LastInspectorUpdate = now
+                local hp = math.floor(GetCharacterHealth(CurrentLockedModel))
+                local dist = math.floor((CurrentLockedPart.Position - Camera.CFrame.Position).Magnitude)
+                local info = InspectCharacterLoadout(CurrentLockedModel)
+
+                InspTitle.Text = string.format("🎯 ล็อคเป้า: %s [%d HP] (%dm)", tostring(CurrentTargetName), hp, dist)
+                if info then
+                    local attStr = (#info.Attachments > 0) and (" (" .. table.concat(info.Attachments, ", ") .. ")") or ""
+                    local knownStr = (#info.KnownWeapons > 0) and table.concat(info.KnownWeapons, ", ") or "ยังไม่พบของสลับถือ"
+                    local armorStr = (#info.ArmorList > 0) and table.concat(info.ArmorList, ", ") or "ไม่มีเกราะ"
+                    local storageStr = (#info.StorageItems > 0) and ("\nช่องของ: " .. table.concat(info.StorageItems, ", ")) or ""
+
+                    InspBody.Text = string.format(
+                        "ถืออยู่: %s%s\nของในตัวที่พบ: %s\nเกราะ (%d%%): %s%s",
+                        info.HeldWeapon, attStr,
+                        knownStr,
+                        info.Protection, armorStr,
+                        storageStr
+                    )
+                end
+            end
+        else
+            TargetInspectorFrame.Visible = false
+        end
+
         local predScreen, predOnScreen = Camera:WorldToViewportPoint(CurrentPredictedPos)
         if predOnScreen and Config.ShowTargetLine then
             local targetVec2 = Vector2.new(predScreen.X, predScreen.Y)
@@ -946,8 +1270,8 @@ local function UpdateAimbotStep(dt)
             local deltaMag = mouseDelta.Magnitude
             local baseSmooth = Config.AimSmoothness
 
-            -- เร่งความไวในการเกาะเป้าเมื่อเป้าหมายกำลังวิ่งสปรินต์
-            local targetVel = GetTargetVelocity(CurrentLockedModel, CurrentLockedModel:FindFirstChild("HumanoidRootPart") or CurrentLockedPart)
+            local rootOrPart = FindBasePartChild(CurrentLockedModel, "HumanoidRootPart") or CurrentLockedPart
+            local targetVel = GetTargetVelocity(CurrentLockedModel, rootOrPart)
             if targetVel.Magnitude > 8 then
                 baseSmooth = math.clamp(baseSmooth * 1.30, 0.15, 0.92)
             end
@@ -961,8 +1285,6 @@ local function UpdateAimbotStep(dt)
             end
 
             if not isBreakingAway and CurrentPredictedPos then
-                -- ใช้วิธีคำนวณ CFrame:Lerp แบบเดียวกับบนมือถือ 100% (ตัด mousemoverel ที่ทำให้คอมสั่นออก)
-                -- และชดเชยด้วย frameDt เพื่อให้สมูทเท่ากันทุกเฟรมเรตบน PC
                 local frameAlpha = 1 - ((1 - baseSmooth) ^ (frameDt * 60))
                 frameAlpha = math.clamp(frameAlpha, 0.05, 0.96)
 
@@ -975,14 +1297,14 @@ local function UpdateAimbotStep(dt)
         FOVStroke.Color = Color3.fromRGB(255, 255, 255)
         PredictionDot.Visible = false
         TargetLine.Visible = false
+        TargetInspectorFrame.Visible = false
     end
 end
 
--- ใช้ BindToRenderStep เพียงจุดเดียวเหมือนในมือถือ ไม่ซ้อนกับ RenderStepped
 RunService:BindToRenderStep("TeteKubbAimbotEngine", Enum.RenderPriority.Last.Value + 10, UpdateAimbotStep)
 
 -- ==============================================================================
--- [10] HELPER FUNCTIONS FOR ESP & BACKGROUND SCANNER
+-- [10] SHALLOW NON-BLOCKING WORLD INDEXER & AUTO-LOOT VACUUM (FIXED BASEPART CHECK)
 -- ==============================================================================
 local UserIdNameCache = {}
 
@@ -1047,7 +1369,7 @@ local function GetSleeperInfo(obj)
     if typeof(obj) ~= "Instance" or not obj:IsA("Model") then return false, nil end
     if obj == GetLocalCharacter() or obj.Name == "Viewmodel" then return false, nil end
 
-    local head = obj:FindFirstChild("Head")
+    local head = FindBasePartChild(obj, "Head")
     local nameUI = head and head:FindFirstChild("NameUI")
     local nameLabel = nameUI and nameUI:FindFirstChild("NameLabel")
     local sleeperName = (nameLabel and nameLabel.Text ~= "" and nameLabel.Text) or obj.Name
@@ -1056,10 +1378,10 @@ local function GetSleeperInfo(obj)
         return true, sleeperName
     end
 
-    local hasTorso = obj:FindFirstChild("Torso") or obj:FindFirstChild("UpperTorso") or obj:FindFirstChild("HumanoidRootPart")
+    local hasTorso = FindBasePartChild(obj, "Torso") or FindBasePartChild(obj, "UpperTorso") or FindBasePartChild(obj, "HumanoidRootPart")
     if head and hasTorso and not IsActiveOnlineCharacter(obj) then
         local hum = obj:FindFirstChildOfClass("Humanoid")
-        local root = obj:FindFirstChild("HumanoidRootPart") or head
+        local root = FindBasePartChild(obj, "HumanoidRootPart") or head
         local isLyingDown = math.abs(root.CFrame.UpVector.Y) < 0.55
 
         if isLyingDown or (obj.Parent and obj.Parent.Name == "Deployables") or not hum then
@@ -1075,8 +1397,8 @@ local function IsScientistBot(obj)
     if IsActiveOnlineCharacter(obj) then return false, nil end
 
     local hp = GetCharacterHealth(obj)
-    local root = obj:FindFirstChild("HumanoidRootPart")
-    local head = obj:FindFirstChild("Head")
+    local root = FindBasePartChild(obj, "HumanoidRootPart")
+    local head = FindBasePartChild(obj, "Head")
 
     if hp > 0 and root and head then
         local lowerName = string.lower(obj.Name)
@@ -1090,43 +1412,42 @@ local function IsScientistBot(obj)
     return false, nil
 end
 
+-- แก้ไขบั๊ก: บังคับตรวจสอบ :IsA("BasePart") ทุกตัว เพื่อไม่ให้คืนค่า Model ที่ชื่อ "Top"
 local function GetTargetPart(model)
     if not model then return nil end
     if model:IsA("BasePart") then return model end
     if model:IsA("Model") then
-        return model.PrimaryPart
-            or model:FindFirstChild("HumanoidRootPart")
-            or model:FindFirstChild("Head")
-            or model:FindFirstChild("Hitbox")
-            or model:FindFirstChild("Core")
-            or model:FindFirstChild("Top")
-            or model:FindFirstChildWhichIsA("BasePart", true)
+        if model.PrimaryPart and model.PrimaryPart:IsA("BasePart") then
+            return model.PrimaryPart
+        end
+        for _, partName in ipairs({ "HumanoidRootPart", "Head", "Hitbox", "Core", "Top" }) do
+            local candidate = model:FindFirstChild(partName)
+            if candidate and candidate:IsA("BasePart") then
+                return candidate
+            end
+        end
+        return model:FindFirstChildWhichIsA("BasePart", true)
     end
     return nil
 end
 
-local function GetHeldWeapon(character)
-    if not character then return "Unarmed" end
-    for _, child in ipairs(character:GetChildren()) do
-        if child:IsA("Tool") then
-            return child.Name
-        elseif child:IsA("Model") and (child:FindFirstChild("GunComponents") or child:FindFirstChild("ToolComponents") or child:FindFirstChild("Handle")) then
-            return child.Name
-        end
+local function IsObjectAlive(obj)
+    local hpVal = obj:FindFirstChild("Health") or (obj:FindFirstChild("System") and obj.System:FindFirstChild("Health"))
+    if hpVal and hpVal:IsA("ValueBase") and tonumber(hpVal.Value) and tonumber(hpVal.Value) <= 0 then
+        return false
     end
-    return "Unarmed"
+    return true
 end
 
-local TrackedObjects = {}
-
 local StorageTypes = {
-    ["Wooden Crate"] = true,
-    ["Furnace"] = true,
-    ["Large Furnace"] = true,
-    ["Drop Stash"] = true,
-    ["Workbench"] = true,
-    ["Workbench Level 2"] = true,
-    ["Research Table"] = true,
+    ["Wooden Crate"] = "กล่องไม้",
+    ["Drop Stash"] = "กระเป๋าซ่อนของ",
+    ["Furnace"] = "เตาเผาเล็ก",
+    ["Large Furnace"] = "เตาเผาใหญ่",
+    ["Workbench"] = "โต๊ะคราฟต์ Lv.1",
+    ["Workbench Level 2"] = "โต๊ะคราฟต์ Lv.2",
+    ["Research Table"] = "โต๊ะวิจัย",
+    ["Repair Bench"] = "โต๊ะซ่อมของ",
 }
 
 local TrapTypes = {
@@ -1134,21 +1455,42 @@ local TrapTypes = {
     ["Flame Turret"] = true,
 }
 
-local WorldLootTypes = {
-    ["Locked Crate"] = true,
-    ["MilitaryCrate"] = true,
-    ["HelicopterCrate"] = true,
-    ["Crate"] = true,
-    ["FoodCrate"] = true,
-    ["Barrel"] = true,
-    ["FuelBarrel"] = true,
-    ["SupplyDrop"] = true,
-    ["Supply Drop"] = true,
+local LootCrateNames = {
+    ["Crate"] = "กล่องดรอป (Crate)",
+    ["FoodCrate"] = "กล่องอาหาร (Food Crate)",
+    ["Food Crate"] = "กล่องอาหาร (Food Crate)",
+    ["HelicopterCrate"] = "กล่องฮอตก (Heli Crate)",
+    ["Helicopter Crate"] = "กล่องฮอตก (Heli Crate)",
+    ["Locked Crate"] = "กล่องล็อกเวลา (Locked Crate)",
+    ["LockedCrate"] = "กล่องล็อกเวลา (Locked Crate)",
+    ["SupplyDrop"] = "แอร์ดรอป (Supply Drop)",
+    ["Supply Drop"] = "แอร์ดรอป (Supply Drop)",
+    ["Airdrop"] = "แอร์ดรอป (Airdrop)",
 }
 
-local ClothAndFoodKeywords = {
-    ["Cloth"] = "ผ้า (Cloth)",
+local MilitaryCrateNames = {
+    ["MilitaryCrate"] = "กล่องทหาร (Military Crate)",
+    ["Military Crate"] = "กล่องทหาร (Military Crate)",
+}
+
+local BarrelNames = {
+    ["Barrel"] = "ถังเหล็ก (Barrel)",
+    ["LootBarrel"] = "ถังเหล็ก (Barrel)",
+}
+
+local FuelBarrelNames = {
+    ["FuelBarrel"] = "ถังแก๊ส (Fuel Barrel)",
+    ["Fuel Barrel"] = "ถังแก๊ส (Fuel Barrel)",
+    ["OilBarrel"] = "ถังแก๊ส (Oil Barrel)",
+    ["GasBarrel"] = "ถังแก๊ส (Gas Barrel)",
+}
+
+local GrassAndClothKeywords = {
+    ["Cloth"] = "ผืนหญ้า/ต้นผ้า (Cloth)",
     ["Hemp"] = "ต้นผ้า (Hemp)",
+    ["Grass"] = "ผืนหญ้า (Grass)",
+    ["GrassPatch"] = "ผืนหญ้า (Grass)",
+    ["ClothPlant"] = "ต้นผ้า (Cloth)",
     ["Mushrooms"] = "เห็ด (Mushroom)",
     ["Mushroom"] = "เห็ด (Mushroom)",
     ["Apple"] = "แอปเปิ้ล (Apple)",
@@ -1156,69 +1498,342 @@ local ClothAndFoodKeywords = {
     ["Pumpkin"] = "ฟักทอง (Pumpkin)",
 }
 
+local IgnoredMonumentBuildingNames = {
+    ["Lighthouse"] = true,
+    ["Gas Station"] = true,
+    ["Factory"] = true,
+    ["North Bunker"] = true,
+    ["Bunker Alpha"] = true,
+    ["Arctic Base"] = true,
+    ["Oilrig"] = true,
+}
+
+local function CleanObjectName(rawName)
+    if type(rawName) ~= "string" then return "" end
+    return (string.gsub(rawName, "%s*%d+$", ""))
+end
+
+local IndexedMonumentModels = {}
+
+local function IsInterestingModel(obj)
+    if not obj or not obj:IsA("Model") then return false end
+    if IgnoredMonumentBuildingNames[obj.Name] then return false end
+    if obj:FindFirstChild("GunComponents") or obj:FindFirstChild("ToolComponents") then return false end
+    local raw = obj.Name
+    local clean = CleanObjectName(raw)
+    if MilitaryCrateNames[raw] or MilitaryCrateNames[clean]
+        or LootCrateNames[raw] or LootCrateNames[clean]
+        or FuelBarrelNames[raw] or FuelBarrelNames[clean]
+        or BarrelNames[raw] or BarrelNames[clean]
+        or GrassAndClothKeywords[raw] or GrassAndClothKeywords[clean]
+        or obj:FindFirstChild("ItemName")
+        or obj:FindFirstChild("HumanoidRootPart")
+        or string.find(string.lower(raw), "scientist")
+    then
+        return true
+    end
+    return false
+end
+
+local function ShallowScanContainer(container, depth)
+    if not container or depth > 5 then return end
+    for _, child in ipairs(container:GetChildren()) do
+        if child:IsA("Model") then
+            if IsInterestingModel(child) then
+                IndexedMonumentModels[child] = true
+            elseif IgnoredMonumentBuildingNames[child.Name] or depth <= 2 then
+                ShallowScanContainer(child, depth + 1)
+            end
+        elseif child:IsA("Folder") then
+            ShallowScanContainer(child, depth + 1)
+        end
+    end
+end
+
+local function WatchMonumentFolder(folder)
+    if not folder then return end
+    ShallowScanContainer(folder, 1)
+    AddConnection(folder.DescendantAdded:Connect(function(desc)
+        if desc:IsA("Model") and IsInterestingModel(desc) then
+            IndexedMonumentModels[desc] = true
+        end
+    end))
+    AddConnection(folder.DescendantRemoving:Connect(function(desc)
+        IndexedMonumentModels[desc] = nil
+    end))
+end
+
+task.spawn(function()
+    WatchMonumentFolder(workspace:FindFirstChild("Monuments"))
+    WatchMonumentFolder(workspace:FindFirstChild("GeneratedMonuments"))
+end)
+
+local VisibleTrackedObjects = {}
+local PickupCandidates = {}
+local NearbyContainerCandidates = {}
+
+local function ProcessWorldModel(obj, refPos, rawList, newScientists, newPickups, newContainers, seenSet)
+    if not obj or seenSet[obj] or not obj.Parent or not obj:IsA("Model") then return end
+    if IgnoredMonumentBuildingNames[obj.Name] then return end
+    if obj == GetLocalCharacter() or obj.Name == "Viewmodel" or obj.Name == "StarterCharacter" then return end
+    if obj:FindFirstChild("GunComponents") or obj:FindFirstChild("ToolComponents") then return end
+    if not IsObjectAlive(obj) then return end
+
+    local part = GetTargetPart(obj)
+    if not part or not part:IsA("BasePart") then return end
+    local dist = (part.Position - refPos).Magnitude
+
+    local itemNameVal = obj:FindFirstChild("ItemName")
+    local amountVal = obj:FindFirstChild("Amount")
+
+    if itemNameVal and itemNameVal:IsA("StringValue") then
+        local itemName = itemNameVal.Value ~= "" and itemNameVal.Value or obj.Name
+        local cleanItem = CleanObjectName(itemName)
+        local amt = (amountVal and amountVal.Value) or 1
+
+        seenSet[obj] = true
+        if dist <= 25 and ShouldLootItem(itemName) then
+            table.insert(newPickups, { Model = obj, Part = part, Dist = dist })
+        end
+
+        if dist <= Config.WorldRenderDistance then
+            local grassLabel = GrassAndClothKeywords[itemName] or GrassAndClothKeywords[cleanItem]
+            if grassLabel and Config.ESP_GrassCloth then
+                table.insert(rawList, {
+                    Key = obj, Part = part, Category = "GrassCloth", Dist = dist,
+                    Title = string.format("[%s] x%d", grassLabel, amt),
+                    CachedSub = "",
+                    Color = Color3.fromRGB(80, 255, 120)
+                })
+            elseif Config.ESP_DroppedItems then
+                table.insert(rawList, {
+                    Key = obj, Part = part, Category = "DroppedItem", Dist = dist,
+                    Title = string.format("[ของตก: %s] x%d", itemName, amt),
+                    CachedSub = "",
+                    Color = Color3.fromRGB(120, 255, 220)
+                })
+            end
+        end
+        return
+    end
+
+    local rawName = obj.Name
+    local cleanName = CleanObjectName(rawName)
+
+    local milLabel = MilitaryCrateNames[rawName] or MilitaryCrateNames[cleanName]
+    if milLabel then
+        seenSet[obj] = true
+        if dist <= 18 then table.insert(newContainers, { Model = obj, Dist = dist }) end
+        if Config.ESP_MilitaryCrates and dist <= Config.WorldRenderDistance then
+            table.insert(rawList, {
+                Key = obj, Part = part, Category = "MilitaryCrate", Dist = dist,
+                Title = "[" .. milLabel .. "]",
+                CachedSub = (dist <= 220) and BuildContainerItemsSummary(obj, dist) or "",
+                Color = Color3.fromRGB(50, 255, 110)
+            })
+        end
+        return
+    end
+
+    local lootLabel = LootCrateNames[rawName] or LootCrateNames[cleanName]
+    if lootLabel then
+        seenSet[obj] = true
+        if dist <= 18 then table.insert(newContainers, { Model = obj, Dist = dist }) end
+        if Config.ESP_LootCrates and dist <= Config.WorldRenderDistance then
+            table.insert(rawList, {
+                Key = obj, Part = part, Category = "LootCrate", Dist = dist,
+                Title = "[" .. lootLabel .. "]",
+                CachedSub = (dist <= 220) and BuildContainerItemsSummary(obj, dist) or "",
+                Color = Color3.fromRGB(255, 215, 0)
+            })
+        end
+        return
+    end
+
+    local fuelLabel = FuelBarrelNames[rawName] or FuelBarrelNames[cleanName]
+    if fuelLabel then
+        if Config.ESP_FuelBarrels and dist <= Config.WorldRenderDistance then
+            seenSet[obj] = true
+            table.insert(rawList, {
+                Key = obj, Part = part, Category = "FuelBarrel", Dist = dist,
+                Title = "[" .. fuelLabel .. "]", CachedSub = "",
+                Color = Color3.fromRGB(255, 115, 40)
+            })
+        end
+        return
+    end
+
+    local barrelLabel = BarrelNames[rawName] or BarrelNames[cleanName]
+    if barrelLabel then
+        if Config.ESP_Barrels and dist <= Config.WorldRenderDistance then
+            seenSet[obj] = true
+            table.insert(rawList, {
+                Key = obj, Part = part, Category = "Barrel", Dist = dist,
+                Title = "[" .. barrelLabel .. "]", CachedSub = "",
+                Color = Color3.fromRGB(135, 205, 255)
+            })
+        end
+        return
+    end
+
+    local grassLabel = GrassAndClothKeywords[rawName] or GrassAndClothKeywords[cleanName]
+    if grassLabel then
+        if part.Size.Magnitude < 35 then
+            seenSet[obj] = true
+            if dist <= 25 then
+                table.insert(newPickups, { Model = obj, Part = part, Dist = dist })
+            end
+            if Config.ESP_GrassCloth and dist <= Config.WorldRenderDistance then
+                table.insert(rawList, {
+                    Key = obj, Part = part, Category = "GrassCloth", Dist = dist,
+                    Title = "[" .. grassLabel .. "]", CachedSub = "",
+                    Color = Color3.fromRGB(80, 255, 120)
+                })
+            end
+        end
+        return
+    end
+
+    if Config.ESP_Scientists or Config.LockScientists then
+        local isSci, sciName = IsScientistBot(obj)
+        if isSci then
+            seenSet[obj] = true
+            table.insert(newScientists, obj)
+            if Config.ESP_Scientists and dist <= Config.PlayerRenderDistance then
+                local hp = GetCharacterHealth(obj)
+                table.insert(rawList, {
+                    Key = obj, Part = part, Category = "Scientist", Dist = dist,
+                    Title = string.format("[BOT: %s] [%d HP]", tostring(sciName), math.floor(hp)),
+                    CachedSub = "",
+                    Color = Color3.fromRGB(255, 120, 40)
+                })
+            end
+            return
+        end
+    end
+
+    if Config.ESP_Sleepers then
+        local isSlp, slpName = GetSleeperInfo(obj)
+        if isSlp then
+            seenSet[obj] = true
+            if dist <= 18 then table.insert(newContainers, { Model = obj, Dist = dist }) end
+            if dist <= Config.WorldRenderDistance then
+                table.insert(rawList, {
+                    Key = obj, Part = part, Category = "Sleeper", Dist = dist,
+                    Title = "[SLEEPER] " .. tostring(slpName),
+                    CachedSub = (dist <= 220) and BuildContainerItemsSummary(obj, dist) or "",
+                    Color = Color3.fromRGB(185, 115, 255)
+                })
+            end
+        end
+    end
+end
+
 task.spawn(function()
     while ScriptRunning do
-        local newTracked = {}
-        local newScientists = {}
+        pcall(function()
+            local rawList = {}
+            local newScientists = {}
+            local newPickups = {}
+            local newContainers = {}
+            local seenSet = {}
 
-        local AnyWorldESP = Config.ESP_Scientists or Config.ESP_Sleepers or Config.ESP_BodyBags
-            or Config.ESP_BaseOwner or Config.ESP_Storage or Config.ESP_Traps
-            or Config.ESP_StoneOre or Config.ESP_MetalOre or Config.ESP_SulfurOre
-            or Config.ESP_ClothAndFood or Config.ESP_DroppedItems or Config.ESP_WorldCrates
+            local myChar = GetLocalCharacter()
+            local myRoot = FindBasePartChild(myChar, "HumanoidRootPart")
+            local refPos = (myRoot and myRoot.Position) or (Camera and Camera.CFrame.Position) or Vector3.zero
 
-        if AnyWorldESP or Config.LockScientists then
-            local pbs = workspace:FindFirstChild("PlayerBuiltStructures")
-            local deployables = pbs and pbs:FindFirstChild("Deployables")
-            if deployables and AnyWorldESP then
-                for _, obj in ipairs(deployables:GetChildren()) do
-                    local part = GetTargetPart(obj)
-                    if part then
-                        local isSleeper, sleeperName = GetSleeperInfo(obj)
-                        if isSleeper and Config.ESP_Sleepers then
-                            table.insert(newTracked, {
-                                Key = obj, Part = part, Category = "Sleeper",
-                                Title = "[SLEEPER] " .. tostring(sleeperName),
-                                Color = Color3.fromRGB(185, 115, 255)
-                            })
-                        elseif obj.Name == "BodyBag" and Config.ESP_BodyBags then
-                            table.insert(newTracked, {
-                                Key = obj, Part = part, Category = "BodyBag",
-                                Title = "[ถุงศพ BodyBag]",
-                                Color = Color3.fromRGB(255, 230, 60)
-                            })
-                        elseif (obj.Name == "Base Claim" or obj.Name == "Sleeping Bag") and Config.ESP_BaseOwner then
-                            local ownerStr = GetBaseOwnerNames(obj)
+            for _, p in ipairs(Players:GetPlayers()) do
+                if p ~= LocalPlayer then
+                    local c = GetPlayerCharacter(p)
+                    if c then InspectCharacterLoadout(c) end
+                end
+            end
+
+            local AnyDeployableESP = Config.ESP_TC or Config.ESP_BaseOwner or Config.ESP_Storage
+                or Config.ESP_Traps or Config.ESP_Sleepers or Config.ESP_BodyBags or Config.ESP_LootCrates
+                or Config.AutoLootNearbyContainers
+
+            local AnyWorldScanESP = Config.ESP_Scientists or Config.LockScientists or Config.ESP_Sleepers
+                or Config.ESP_GrassCloth or Config.ESP_DroppedItems or Config.ESP_LootCrates
+                or Config.ESP_MilitaryCrates or Config.ESP_Barrels or Config.ESP_FuelBarrels
+                or Config.AutoPickupEnabled or Config.AutoLootNearbyContainers
+
+            if AnyDeployableESP then
+                local pbs = workspace:FindFirstChild("PlayerBuiltStructures")
+                local deployables = pbs and pbs:FindFirstChild("Deployables")
+                if deployables then
+                    for _, obj in ipairs(deployables:GetChildren()) do
+                        local part = GetTargetPart(obj)
+                        if part and part:IsA("BasePart") and IsObjectAlive(obj) then
+                            seenSet[obj] = true
+                            local dist = (part.Position - refPos).Magnitude
+                            local isSleeper, sleeperName = GetSleeperInfo(obj)
                             local locked = IsDeployableLocked(obj)
-                            local lockStatus = (obj.Name == "Base Claim") and (locked and " [ล็อก]" or " [ไม่ล็อก]") or ""
-                            local prefix = (obj.Name == "Base Claim") and "[ตู้ TC บ้าน]" or "[เตียง]"
-                            table.insert(newTracked, {
-                                Key = obj, Part = part, Category = "BaseOwner",
-                                Title = string.format("%s%s\nเจ้าของ: %s", prefix, lockStatus, ownerStr),
-                                Color = Color3.fromRGB(255, 140, 50)
-                            })
-                        elseif StorageTypes[obj.Name] and Config.ESP_Storage then
-                            local locked = IsDeployableLocked(obj)
-                            if not (Config.ESP_OnlyUnlockedStorage and locked) then
-                                local lockTag = locked and "[ล็อก]" or "[ไม่ล็อก]"
-                                local col = locked and Color3.fromRGB(255, 100, 100) or Color3.fromRGB(80, 230, 255)
-                                table.insert(newTracked, {
-                                    Key = obj, Part = part, Category = "Storage",
-                                    Title = string.format("[%s] %s", obj.Name, lockTag),
-                                    Color = col
-                                })
+
+                            if dist <= 18 and not locked and (StorageTypes[obj.Name] or obj.Name == "BodyBag" or isSleeper or obj.Name == "Locked Crate") then
+                                table.insert(newContainers, { Model = obj, Dist = dist })
                             end
-                        elseif TrapTypes[obj.Name] and Config.ESP_Traps then
-                            table.insert(newTracked, {
-                                Key = obj, Part = part, Category = "Trap",
-                                Title = "[กับดัก! " .. obj.Name .. "]",
-                                Color = Color3.fromRGB(255, 50, 120)
-                            })
-                        elseif obj.Name == "Locked Crate" and Config.ESP_WorldCrates then
-                            table.insert(newTracked, {
-                                Key = obj, Part = part, Category = "WorldCrate",
-                                Title = "[Locked Crate]",
-                                Color = Color3.fromRGB(255, 215, 0)
-                            })
+
+                            if dist <= Config.WorldRenderDistance then
+                                if obj.Name == "Base Claim" and Config.ESP_TC then
+                                    local ownerStr = GetBaseOwnerNames(obj)
+                                    local lockStatus = locked and "[ล็อก]" or "[ไม่ล็อก]"
+                                    local hpVal = obj:FindFirstChild("Health")
+                                    local hpTxt = (hpVal and tonumber(hpVal.Value)) and string.format(" (%d HP)", math.floor(hpVal.Value)) or ""
+                                    table.insert(rawList, {
+                                        Key = obj, Part = part, Category = "TC", Dist = dist,
+                                        Title = string.format("[ตู้ TC ฐานบ้าน] %s%s\nเจ้าของ: %s", lockStatus, hpTxt, ownerStr),
+                                        CachedSub = (dist <= 220) and BuildContainerItemsSummary(obj, dist) or "",
+                                        Color = Color3.fromRGB(255, 85, 255)
+                                    })
+                                elseif obj.Name == "Sleeping Bag" and Config.ESP_BaseOwner then
+                                    local ownerStr = GetBaseOwnerNames(obj)
+                                    table.insert(rawList, {
+                                        Key = obj, Part = part, Category = "BaseOwner", Dist = dist,
+                                        Title = string.format("[เตียงนอน] เจ้าของ: %s", ownerStr),
+                                        CachedSub = "",
+                                        Color = Color3.fromRGB(255, 155, 60)
+                                    })
+                                elseif StorageTypes[obj.Name] and Config.ESP_Storage then
+                                    if not (Config.ESP_OnlyUnlockedStorage and locked) then
+                                        local lockTag = locked and "[ล็อก]" or "[ไม่ล็อก]"
+                                        local col = locked and Color3.fromRGB(255, 100, 100) or Color3.fromRGB(65, 235, 255)
+                                        table.insert(rawList, {
+                                            Key = obj, Part = part, Category = "Storage", Dist = dist,
+                                            Title = string.format("[%s] %s", StorageTypes[obj.Name], lockTag),
+                                            CachedSub = (dist <= 220) and BuildContainerItemsSummary(obj, dist) or "",
+                                            Color = col
+                                        })
+                                    end
+                                elseif isSleeper and Config.ESP_Sleepers then
+                                    table.insert(rawList, {
+                                        Key = obj, Part = part, Category = "Sleeper", Dist = dist,
+                                        Title = "[SLEEPER] " .. tostring(sleeperName),
+                                        CachedSub = (dist <= 220) and BuildContainerItemsSummary(obj, dist) or "",
+                                        Color = Color3.fromRGB(185, 115, 255)
+                                    })
+                                elseif obj.Name == "BodyBag" and Config.ESP_BodyBags then
+                                    table.insert(rawList, {
+                                        Key = obj, Part = part, Category = "BodyBag", Dist = dist,
+                                        Title = "[ถุงศพ BodyBag]",
+                                        CachedSub = (dist <= 220) and BuildContainerItemsSummary(obj, dist) or "",
+                                        Color = Color3.fromRGB(255, 230, 60)
+                                    })
+                                elseif TrapTypes[obj.Name] and Config.ESP_Traps then
+                                    table.insert(rawList, {
+                                        Key = obj, Part = part, Category = "Trap", Dist = dist,
+                                        Title = "[กับดัก! " .. obj.Name .. "]", CachedSub = "",
+                                        Color = Color3.fromRGB(255, 50, 120)
+                                    })
+                                elseif (obj.Name == "Locked Crate" or obj.Name == "LockedCrate") and Config.ESP_LootCrates then
+                                    table.insert(rawList, {
+                                        Key = obj, Part = part, Category = "LootCrate", Dist = dist,
+                                        Title = "[กล่องล็อกเวลา (Locked Crate)]",
+                                        CachedSub = (dist <= 220) and BuildContainerItemsSummary(obj, dist) or "",
+                                        Color = Color3.fromRGB(255, 215, 0)
+                                    })
+                                end
+                            end
                         end
                     end
                 end
@@ -1238,24 +1853,29 @@ task.spawn(function()
                                 local hpVal = sys and sys:FindFirstChild("Health")
                                 local hp = hpVal and hpVal.Value or 30
                                 if hp > 0 then
-                                    local part = ore.PrimaryPart or ore:FindFirstChild("Top") or ore:FindFirstChildWhichIsA("BasePart")
+                                    local part = (ore.PrimaryPart and ore.PrimaryPart:IsA("BasePart") and ore.PrimaryPart)
+                                        or FindBasePartChild(ore, "Top")
                                     if part then
-                                        local col, label
-                                        if ore.Name == "Stone" then
-                                            col = Color3.fromRGB(200, 200, 200)
-                                            label = "[แร่หิน Stone]"
-                                        elseif ore.Name == "Metal Ore" then
-                                            col = Color3.fromRGB(255, 165, 90)
-                                            label = "[แร่เหล็ก Metal Ore]"
-                                        else
-                                            col = Color3.fromRGB(245, 255, 90)
-                                            label = "[แร่กำมะถัน Sulfur Ore]"
+                                        local dist = (part.Position - refPos).Magnitude
+                                        if dist <= Config.WorldRenderDistance then
+                                            local col, label
+                                            if ore.Name == "Stone" then
+                                                col = Color3.fromRGB(200, 200, 200)
+                                                label = "[แร่หิน Stone]"
+                                            elseif ore.Name == "Metal Ore" then
+                                                col = Color3.fromRGB(255, 165, 90)
+                                                label = "[แร่เหล็ก Metal Ore]"
+                                            else
+                                                col = Color3.fromRGB(245, 255, 90)
+                                                label = "[แร่กำมะถัน Sulfur Ore]"
+                                            end
+                                            table.insert(rawList, {
+                                                Key = ore, Part = part, Category = "Ore", Dist = dist,
+                                                Title = string.format("%s (%d HP)", label, math.floor(hp)),
+                                                CachedSub = "",
+                                                Color = col
+                                            })
                                         end
-                                        table.insert(newTracked, {
-                                            Key = ore, Part = part, Category = "Ore",
-                                            Title = string.format("%s (%d HP)", label, math.floor(hp)),
-                                            Color = col
-                                        })
                                     end
                                 end
                             end
@@ -1264,161 +1884,197 @@ task.spawn(function()
                 end
             end
 
-            for _, obj in ipairs(workspace:GetChildren()) do
-                if obj:IsA("Model") and obj ~= GetLocalCharacter() and obj.Name ~= "Viewmodel" then
-                    local itemNameVal = obj:FindFirstChild("ItemName")
-                    local amountVal = obj:FindFirstChild("Amount")
-
-                    if itemNameVal and itemNameVal:IsA("StringValue") then
-                        local itemName = itemNameVal.Value ~= "" and itemNameVal.Value or obj.Name
-                        local amt = (amountVal and amountVal.Value) or 1
-                        local part = GetTargetPart(obj)
-
-                        if part then
-                            if ClothAndFoodKeywords[itemName] and Config.ESP_ClothAndFood then
-                                table.insert(newTracked, {
-                                    Key = obj, Part = part, Category = "Cloth",
-                                    Title = string.format("[%s] x%d", ClothAndFoodKeywords[itemName], amt),
-                                    Color = Color3.fromRGB(100, 255, 160)
-                                })
-                            elseif Config.ESP_DroppedItems then
-                                table.insert(newTracked, {
-                                    Key = obj, Part = part, Category = "DroppedItem",
-                                    Title = string.format("[ของตก: %s] x%d", itemName, amt),
-                                    Color = Color3.fromRGB(120, 255, 220)
-                                })
+            if AnyWorldScanESP then
+                for _, topChild in ipairs(workspace:GetChildren()) do
+                    if topChild:IsA("Model") then
+                        ProcessWorldModel(topChild, refPos, rawList, newScientists, newPickups, newContainers, seenSet)
+                    elseif topChild:IsA("Folder")
+                        and topChild.Name ~= "Monuments"
+                        and topChild.Name ~= "GeneratedMonuments"
+                        and topChild.Name ~= "OreSpawns"
+                        and topChild.Name ~= "PlayerBuiltStructures"
+                        and topChild.Name ~= "Decorations"
+                        and topChild.Name ~= "Add-ons"
+                    then
+                        for _, sub in ipairs(topChild:GetChildren()) do
+                            if sub:IsA("Model") then
+                                ProcessWorldModel(sub, refPos, rawList, newScientists, newPickups, newContainers, seenSet)
                             end
                         end
+                    end
+                end
+
+                for monModel, _ in pairs(IndexedMonumentModels) do
+                    if monModel and monModel.Parent then
+                        ProcessWorldModel(monModel, refPos, rawList, newScientists, newPickups, newContainers, seenSet)
                     else
-                        local isSci, sciName = IsScientistBot(obj)
-                        local isSlp, slpName = GetSleeperInfo(obj)
-
-                        if isSci then
-                            table.insert(newScientists, obj)
-                            if Config.ESP_Scientists then
-                                local part = GetTargetPart(obj)
-                                local hp = GetCharacterHealth(obj)
-                                if part then
-                                    table.insert(newTracked, {
-                                        Key = obj, Part = part, Category = "Scientist",
-                                        Title = string.format("[BOT: %s] [%d HP]", tostring(sciName), math.floor(hp)),
-                                        Color = Color3.fromRGB(255, 120, 40)
-                                    })
-                                end
-                            end
-                        elseif isSlp and Config.ESP_Sleepers then
-                            local part = GetTargetPart(obj)
-                            if part then
-                                table.insert(newTracked, {
-                                    Key = obj, Part = part, Category = "Sleeper",
-                                    Title = "[SLEEPER] " .. tostring(slpName),
-                                    Color = Color3.fromRGB(185, 115, 255)
-                                })
-                            end
-                        elseif ClothAndFoodKeywords[obj.Name] and Config.ESP_ClothAndFood then
-                            local part = GetTargetPart(obj)
-                            if part then
-                                table.insert(newTracked, {
-                                    Key = obj, Part = part, Category = "Cloth",
-                                    Title = "[" .. ClothAndFoodKeywords[obj.Name] .. "]",
-                                    Color = Color3.fromRGB(100, 255, 160)
-                                })
-                            end
-                        elseif WorldLootTypes[obj.Name] and Config.ESP_WorldCrates then
-                            local part = GetTargetPart(obj)
-                            if part then
-                                table.insert(newTracked, {
-                                    Key = obj, Part = part, Category = "WorldCrate",
-                                    Title = "[" .. obj.Name .. "]",
-                                    Color = Color3.fromRGB(255, 215, 0)
-                                })
-                            end
-                        end
+                        IndexedMonumentModels[monModel] = nil
                     end
                 end
             end
 
-            if Config.ESP_Scientists or Config.LockScientists or Config.ESP_ClothAndFood or Config.ESP_WorldCrates then
-                local monuments = workspace:FindFirstChild("Monuments")
-                if monuments then
-                    for _, desc in ipairs(monuments:GetDescendants()) do
-                        if desc:IsA("Model") then
-                            local isSci, sciName = IsScientistBot(desc)
-                            if isSci then
-                                table.insert(newScientists, desc)
-                                if Config.ESP_Scientists then
-                                    local part = GetTargetPart(desc)
-                                    local hp = GetCharacterHealth(desc)
-                                    if part then
-                                        table.insert(newTracked, {
-                                            Key = desc, Part = part, Category = "Scientist",
-                                            Title = string.format("[BOT: %s] [%d HP]", tostring(sciName), math.floor(hp)),
-                                            Color = Color3.fromRGB(255, 120, 40)
-                                        })
-                                    end
-                                end
-                            elseif Config.ESP_ClothAndFood and ClothAndFoodKeywords[desc.Name] then
-                                local part = GetTargetPart(desc)
-                                if part then
-                                    table.insert(newTracked, {
-                                        Key = desc, Part = part, Category = "Cloth",
-                                        Title = "[" .. ClothAndFoodKeywords[desc.Name] .. "]",
-                                        Color = Color3.fromRGB(100, 255, 160)
-                                    })
-                                end
-                            elseif Config.ESP_WorldCrates and WorldLootTypes[desc.Name] then
-                                local part = GetTargetPart(desc)
-                                if part then
-                                    table.insert(newTracked, {
-                                        Key = desc, Part = part, Category = "WorldCrate",
-                                        Title = "[" .. desc.Name .. "]",
-                                        Color = Color3.fromRGB(255, 215, 0)
-                                    })
-                                end
-                            end
-                        end
-                    end
+            if #rawList > Config.MaxWorldESPCount then
+                table.sort(rawList, function(a, b)
+                    return a.Dist < b.Dist
+                end)
+                local capped = {}
+                for i = 1, Config.MaxWorldESPCount do
+                    capped[i] = rawList[i]
+                end
+                VisibleTrackedObjects = capped
+            else
+                VisibleTrackedObjects = rawList
+            end
+
+            CachedScientists = newScientists
+            PickupCandidates = newPickups
+            NearbyContainerCandidates = newContainers
+        end)
+        task.wait(0.65)
+    end
+end)
+
+-- ลูปดูดของอัตโนมัติ (ดูดของตกพื้น + ดูดของในกล่องที่เปิดอยู่ + ดูดของในกล่องรอบตัว)
+local PickupCooldowns = {}
+local SlotLootCooldowns = {}
+
+local function TryQuickLootContainerSlots(slotsFolder)
+    if not slotsFolder or not QuickMoveFromStorageRemote then return 0 end
+    local now = os.clock()
+    local moved = 0
+
+    for _, slot in ipairs(slotsFolder:GetChildren()) do
+        local itemNameVal = slot:FindFirstChild("ItemName")
+        local amountVal = slot:FindFirstChild("Amount")
+        if itemNameVal and itemNameVal.Value ~= "" and (not amountVal or amountVal.Value > 0) then
+            if ShouldLootItem(itemNameVal.Value) then
+                local slotKey = tostring(slot:GetFullName())
+                if not SlotLootCooldowns[slotKey] or (now - SlotLootCooldowns[slotKey]) > 0.35 then
+                    SlotLootCooldowns[slotKey] = now
+                    moved = moved + 1
+                    pcall(function()
+                        QuickMoveFromStorageRemote:FireServer(slot)
+                    end)
+                    if moved >= 6 then break end
                 end
             end
         end
+    end
+    return moved
+end
 
-        TrackedObjects = newTracked
-        CachedScientists = newScientists
-        task.wait(0.8)
+task.spawn(function()
+    while ScriptRunning do
+        pcall(function()
+            local now = os.clock()
+
+            if Config.AutoPickupEnabled and PickUpRequestRemote then
+                local char = GetLocalCharacter()
+                local root = FindBasePartChild(char, "HumanoidRootPart")
+                if root then
+                    local myPos = root.Position
+                    local firedCount = 0
+                    for _, entry in ipairs(PickupCandidates) do
+                        local model = entry.Model
+                        local part = entry.Part
+                        if model and model.Parent and part and part.Parent and part:IsA("BasePart") then
+                            if (part.Position - myPos).Magnitude <= Config.AutoPickupRange then
+                                if not PickupCooldowns[model] or (now - PickupCooldowns[model]) > 0.40 then
+                                    PickupCooldowns[model] = now
+                                    firedCount = firedCount + 1
+                                    pcall(function()
+                                        PickUpRequestRemote:FireServer(model)
+                                    end)
+                                    if firedCount >= 5 then break end
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+
+            if Config.AutoLootOpenContainer and QuickMoveFromStorageRemote then
+                local pGui = LocalPlayer:FindFirstChild("PlayerGui")
+                local invGui = pGui and pGui:FindFirstChild("Inventory")
+                if invGui then
+                    for _, panelName in ipairs({ "Storage", "Furnace", "LargeFurnace", "Campfire", "Recycler" }) do
+                        local panel = invGui:FindFirstChild(panelName)
+                        if panel and panel.Visible then
+                            TryQuickLootContainerSlots(panel)
+                        end
+                    end
+                end
+            end
+
+            if Config.AutoLootNearbyContainers and QuickMoveFromStorageRemote then
+                for _, entry in ipairs(NearbyContainerCandidates) do
+                    local container = entry.Model
+                    if container and container.Parent and entry.Dist <= Config.AutoPickupRange then
+                        local storageFolder = container:FindFirstChild("Storage")
+                        if not storageFolder and GameStorageView then
+                            if GameStorageView.IsLoaded(container) then
+                                storageFolder = GameStorageView.Get(container)
+                            elseif AddPlayerToStorageRemote then
+                                if not StorageFetchCooldown[container] or (now - StorageFetchCooldown[container]) > 2.5 then
+                                    StorageFetchCooldown[container] = now
+                                    pcall(function()
+                                        AddPlayerToStorageRemote:FireServer(container)
+                                    end)
+                                end
+                            end
+                        end
+                        if storageFolder then
+                            TryQuickLootContainerSlots(storageFolder)
+                        end
+                    end
+                end
+            end
+        end)
+        task.wait(0.16)
     end
 end)
 
 -- ==============================================================================
--- [11] ESP RENDERER
+-- [11] ULTRA-LIGHTWEIGHT ESP RENDERER
 -- ==============================================================================
 local ESPPool = {}
 
-local function CreateESPItem(key)
+local function CreateESPItem(key, isPlayerOrBot)
     local container = Instance.new("Frame")
     container.Name = "ESP_Item"
-    container.BackgroundTransparency = 1
+    container.BackgroundTransparency = isPlayerOrBot and 1 or 0.15
+    container.BorderSizePixel = 0
     container.Visible = false
     container.Parent = OverlayGui
 
-    local boxStroke = Instance.new("UIStroke")
-    boxStroke.Thickness = 1.4
-    boxStroke.Parent = container
+    local boxStroke = nil
+    if isPlayerOrBot then
+        boxStroke = Instance.new("UIStroke")
+        boxStroke.Thickness = 1.3
+        boxStroke.Parent = container
+    else
+        local dotCorner = Instance.new("UICorner")
+        dotCorner.CornerRadius = UDim.new(1, 0)
+        dotCorner.Parent = container
+    end
 
     local label = Instance.new("TextLabel")
     label.BackgroundTransparency = 1
-    label.Size = UDim2.new(0, 240, 0, 50)
+    label.Size = UDim2.new(0, 260, 0, 56)
     label.AnchorPoint = Vector2.new(0.5, 1)
     label.Position = UDim2.new(0.5, 0, 0, -3)
     label.Font = Enum.Font.RobotoMono
     label.TextSize = 13
-    label.TextStrokeTransparency = 0.15
+    label.TextStrokeTransparency = 0.20
     label.TextColor3 = Color3.new(1, 1, 1)
     label.Parent = container
 
     ESPPool[key] = {
         Frame = container,
         Stroke = boxStroke,
-        Label = label
+        Label = label,
+        LastText = "",
+        LastColor = nil
     }
     return ESPPool[key]
 end
@@ -1426,7 +2082,9 @@ end
 local function CleanupESP(activeKeys)
     for key, item in pairs(ESPPool) do
         if not activeKeys[key] then
-            item.Frame.Visible = false
+            if item.Frame.Visible then
+                item.Frame.Visible = false
+            end
             if typeof(key) == "Instance" and not key.Parent then
                 item.Frame:Destroy()
                 ESPPool[key] = nil
@@ -1439,13 +2097,13 @@ AddConnection(RunService.RenderStepped:Connect(function()
     if not ScriptRunning then return end
     local activeKeys = {}
     local myChar = GetLocalCharacter()
-    local myRoot = myChar and myChar:FindFirstChild("HumanoidRootPart")
+    local myRoot = FindBasePartChild(myChar, "HumanoidRootPart")
     local refPos = (myRoot and myRoot.Position) or Camera.CFrame.Position
 
     for _, player in ipairs(Players:GetPlayers()) do
         if player ~= LocalPlayer then
             local char = GetPlayerCharacter(player)
-            local root = char and char:FindFirstChild("HumanoidRootPart")
+            local root = FindBasePartChild(char, "HumanoidRootPart")
             if root then GetTargetVelocity(char, root) end
         end
     end
@@ -1454,8 +2112,8 @@ AddConnection(RunService.RenderStepped:Connect(function()
         for _, player in ipairs(Players:GetPlayers()) do
             if player ~= LocalPlayer then
                 local char = GetPlayerCharacter(player)
-                local root = char and char:FindFirstChild("HumanoidRootPart")
-                local head = char and char:FindFirstChild("Head")
+                local root = FindBasePartChild(char, "HumanoidRootPart")
+                local head = FindBasePartChild(char, "Head")
                 local hp = GetCharacterHealth(char)
 
                 if root and head and hp > 0 then
@@ -1466,25 +2124,35 @@ AddConnection(RunService.RenderStepped:Connect(function()
 
                         if onScreenTop or onScreenBot then
                             activeKeys[player] = true
-                            local esp = ESPPool[player] or CreateESPItem(player)
+                            local esp = ESPPool[player] or CreateESPItem(player, true)
                             local isTeam = IsTeammate(player)
                             local color = isTeam and Color3.fromRGB(60, 255, 100) or Color3.fromRGB(255, 65, 65)
 
                             local height = math.abs(botPos.Y - topPos.Y)
                             local width = height * 0.6
-                            local weapon = GetHeldWeapon(char)
+                            local weapon = CachedPlayerWeapon[char] or "Unarmed"
 
                             esp.Frame.Size = UDim2.fromOffset(width, height)
                             esp.Frame.Position = UDim2.fromOffset(topPos.X - width / 2, topPos.Y)
-                            esp.Stroke.Color = color
-                            esp.Label.TextColor3 = color
-                            esp.Label.Text = string.format(
+
+                            if esp.LastColor ~= color then
+                                esp.LastColor = color
+                                if esp.Stroke then esp.Stroke.Color = color end
+                                esp.Label.TextColor3 = color
+                            end
+
+                            local distInt = math.floor(dist / 2) * 2
+                            local newText = string.format(
                                 "%s [%d HP]\nถือ: %s (%d m)",
                                 player.Name,
                                 math.floor(hp),
                                 weapon,
-                                math.floor(dist)
+                                distInt
                             )
+                            if esp.LastText ~= newText then
+                                esp.LastText = newText
+                                esp.Label.Text = newText
+                            end
                             esp.Frame.Visible = true
                         end
                     end
@@ -1493,26 +2161,37 @@ AddConnection(RunService.RenderStepped:Connect(function()
         end
     end
 
-    for _, data in ipairs(TrackedObjects) do
+    for _, data in ipairs(VisibleTrackedObjects) do
         local obj = data.Key
         local part = data.Part
-        if obj and obj.Parent and part and part.Parent then
-            local dist = (part.Position - refPos).Magnitude
-            local maxDist = (data.Category == "Scientist") and Config.PlayerRenderDistance or Config.WorldRenderDistance
-            if dist <= maxDist then
-                local screenPos, onScreen = Camera:WorldToViewportPoint(part.Position)
-                if onScreen then
-                    activeKeys[obj] = true
-                    local esp = ESPPool[obj] or CreateESPItem(obj)
+        if obj and obj.Parent and part and part.Parent and part:IsA("BasePart") then
+            local screenPos, onScreen = Camera:WorldToViewportPoint(part.Position)
+            if onScreen and screenPos.Z > 0 then
+                activeKeys[obj] = true
+                local isBot = (data.Category == "Scientist")
+                local esp = ESPPool[obj] or CreateESPItem(obj, isBot)
 
-                    local boxSize = (data.Category == "Scientist") and 28 or 20
-                    esp.Frame.Size = UDim2.fromOffset(boxSize, boxSize)
-                    esp.Frame.Position = UDim2.fromOffset(screenPos.X - boxSize / 2, screenPos.Y - boxSize / 2)
-                    esp.Stroke.Color = data.Color
+                local dotSize = isBot and 24 or 7
+                esp.Frame.Size = UDim2.fromOffset(dotSize, dotSize)
+                esp.Frame.Position = UDim2.fromOffset(screenPos.X - dotSize / 2, screenPos.Y - dotSize / 2)
+
+                if esp.LastColor ~= data.Color then
+                    esp.LastColor = data.Color
+                    if esp.Stroke then
+                        esp.Stroke.Color = data.Color
+                    else
+                        esp.Frame.BackgroundColor3 = data.Color
+                    end
                     esp.Label.TextColor3 = data.Color
-                    esp.Label.Text = string.format("%s (%d m)", data.Title, math.floor(dist))
-                    esp.Frame.Visible = true
                 end
+
+                local distInt = math.floor((part.Position - refPos).Magnitude / 2) * 2
+                local newText = string.format("%s (%d m)%s", data.Title, distInt, data.CachedSub or "")
+                if esp.LastText ~= newText then
+                    esp.LastText = newText
+                    esp.Label.Text = newText
+                end
+                esp.Frame.Visible = true
             end
         end
     end
@@ -1521,25 +2200,25 @@ AddConnection(RunService.RenderStepped:Connect(function()
 end))
 
 -- ==============================================================================
--- [12] FLUENT UI SETUP (TeteKubb Hub) & KEYBIND HANDLER
+-- [12] FLUENT UI SETUP (TeteKubb Hub V14.1) & KEYBIND HANDLER
 -- ==============================================================================
 local Fluent = loadstring(game:HttpGet("https://github.com/dawid-scripts/Fluent/releases/latest/download/main.lua"))()
 
 local Window = Fluent:CreateWindow({
-    Title = "TeteKubb Hub",
-    SubTitle = "Smooth PC & Mobile Aimbot + Fullbright + ESP",
+    Title = "TeteKubb Hub V14.1",
+    SubTitle = "Fixed Lighthouse Bug + Auto-Loot Vacuum + Inspector",
     TabWidth = 155,
-    Size = UDim2.fromOffset(620, 480),
+    Size = UDim2.fromOffset(640, 520),
     Acrylic = false,
     Theme = "Dark",
     MinimizeKey = Enum.KeyCode.RightControl
 })
 
 local Tabs = {
-    Combat = Window:AddTab({ Title = "Aimbot & ลดแรงดีด", Icon = "crosshair" }),
-    PlayerBaseESP = Window:AddTab({ Title = "ESP คน & แสงแมพ", Icon = "users" }),
-    ResourceESP = Window:AddTab({ Title = "ESP แร่ & ตี Spark", Icon = "pickaxe" }),
-    LootESP = Window:AddTab({ Title = "ESP ของตก & กล่อง", Icon = "box" }),
+    Combat = Window:AddTab({ Title = "Aimbot & เช็คของคน", Icon = "crosshair" }),
+    PlayerBaseESP = Window:AddTab({ Title = "ESP คน & ตู้ TC", Icon = "users" }),
+    ResourceESP = Window:AddTab({ Title = "ดูดของ & แร่/หญ้า", Icon = "pickaxe" }),
+    LootESP = Window:AddTab({ Title = "ESP กล่อง & ตั้งค่าลื่น", Icon = "box" }),
 }
 
 local function ReadToggleVal(val, toggleObj)
@@ -1549,7 +2228,7 @@ local function ReadToggleVal(val, toggleObj)
 end
 
 -- ------------------------------------------------------------------------------
--- TAB 1: PRO AIMBOT (PC & MOBILE SMOOTH LOCK)
+-- TAB 1: PRO AIMBOT & TARGET INSPECTOR
 -- ------------------------------------------------------------------------------
 local AimToggle = Tabs.Combat:AddToggle("AimToggle", {
     Title = "เปิดใช้งาน Aimbot ล็อคเป้า (ปุ่มลัด: X)",
@@ -1558,6 +2237,18 @@ local AimToggle = Tabs.Combat:AddToggle("AimToggle", {
 })
 AimToggle:OnChanged(function(val)
     Config.AimlockEnabled = ReadToggleVal(val, AimToggle)
+end)
+
+local TargetInvToggle = Tabs.Combat:AddToggle("TargetInvToggle", {
+    Title = "โชว์ของในตัวผู้เล่นที่ล็อคเป้า (Target Loadout & Armor HUD)",
+    Description = "ล็อคใครโชว์ปืนที่ถือ ของแต่งปืน อาวุธในตัวที่ตรวจพบ และชุดเกราะของคนนั้นทันที",
+    Default = true
+})
+TargetInvToggle:OnChanged(function(val)
+    Config.ShowTargetInventory = ReadToggleVal(val, TargetInvToggle)
+    if not Config.ShowTargetInventory then
+        TargetInspectorFrame.Visible = false
+    end
 end)
 
 local TargetPartDropdown = Tabs.Combat:AddDropdown("TargetPartDropdown", {
@@ -1686,7 +2377,7 @@ local TeamCheckToggle = Tabs.Combat:AddToggle("TeamCheckToggle", {
 TeamCheckToggle:OnChanged(function(val) Config.TeamCheck = ReadToggleVal(val, TeamCheckToggle) end)
 
 -- ------------------------------------------------------------------------------
--- TAB 2: FULLBRIGHT & ESP ผู้เล่น / บอท / เจ้าของบ้าน
+-- TAB 2: FULLBRIGHT & ESP ผู้เล่น / ตู้ TC / เตียง / กับดัก
 -- ------------------------------------------------------------------------------
 local FullbrightToggle = Tabs.PlayerBaseESP:AddToggle("FullbrightToggle", {
     Title = "เปิดใช้งาน Fullbright & ตัดหมอก (ปุ่มลัด: B)",
@@ -1710,22 +2401,46 @@ Tabs.PlayerBaseESP:AddSlider("FullbrightLevelSlider", {
     end
 })
 
-local T_Players = Tabs.PlayerBaseESP:AddToggle("T_Players", { Title = "ESP ผู้เล่นออนไลน์ (ชื่อ + เลือด + ปืนที่ถือ)", Default = false })
+local T_Players = Tabs.PlayerBaseESP:AddToggle("T_Players", {
+    Title = "ESP ผู้เล่นออนไลน์ (ชื่อ + เลือด + ปืนที่ถือ)",
+    Default = false
+})
 T_Players:OnChanged(function(val) Config.ESP_Players = ReadToggleVal(val, T_Players) end)
 
-local T_Scientists = Tabs.PlayerBaseESP:AddToggle("T_Scientists", { Title = "ESP บอทนักวิทยาศาสตร์ (Road / Monument Scientist)", Default = false })
-T_Scientists:OnChanged(function(val) Config.ESP_Scientists = ReadToggleVal(val, T_Scientists) end)
+local T_TC = Tabs.PlayerBaseESP:AddToggle("T_TC", {
+    Title = "ESP ตู้ TC / ตู้ฐานบ้าน (Base Claim + ชื่อเจ้าของ + ของข้างใน)",
+    Default = false
+})
+T_TC:OnChanged(function(val) Config.ESP_TC = ReadToggleVal(val, T_TC) end)
 
-local T_Sleepers = Tabs.PlayerBaseESP:AddToggle("T_Sleepers", { Title = "ESP คนนอนออฟไลน์ (Sleeper)", Default = false })
-T_Sleepers:OnChanged(function(val) Config.ESP_Sleepers = ReadToggleVal(val, T_Sleepers) end)
-
-local T_BodyBags = Tabs.PlayerBaseESP:AddToggle("T_BodyBags", { Title = "ESP ถุงศพคนตาย (BodyBag)", Default = false })
-T_BodyBags:OnChanged(function(val) Config.ESP_BodyBags = ReadToggleVal(val, T_BodyBags) end)
-
-local T_BaseOwner = Tabs.PlayerBaseESP:AddToggle("T_BaseOwner", { Title = "ESP ดูชื่อเจ้าของบ้าน (สแกนตู้ TC & เตียงนอน)", Default = false })
+local T_BaseOwner = Tabs.PlayerBaseESP:AddToggle("T_BaseOwner", {
+    Title = "ESP เตียงนอนผู้เล่น (Sleeping Bag + ชื่อเจ้าของ)",
+    Default = false
+})
 T_BaseOwner:OnChanged(function(val) Config.ESP_BaseOwner = ReadToggleVal(val, T_BaseOwner) end)
 
-local T_Traps = Tabs.PlayerBaseESP:AddToggle("T_Traps", { Title = "ESP กับดักในบ้าน (Shotgun Trap / Flame Turret)", Default = false })
+local T_Scientists = Tabs.PlayerBaseESP:AddToggle("T_Scientists", {
+    Title = "ESP บอทนักวิทยาศาสตร์ (Road / Monument Scientist)",
+    Default = false
+})
+T_Scientists:OnChanged(function(val) Config.ESP_Scientists = ReadToggleVal(val, T_Scientists) end)
+
+local T_Sleepers = Tabs.PlayerBaseESP:AddToggle("T_Sleepers", {
+    Title = "ESP คนนอนออฟไลน์ (Sleeper + เช็คของในตัว)",
+    Default = false
+})
+T_Sleepers:OnChanged(function(val) Config.ESP_Sleepers = ReadToggleVal(val, T_Sleepers) end)
+
+local T_BodyBags = Tabs.PlayerBaseESP:AddToggle("T_BodyBags", {
+    Title = "ESP ถุงศพคนตาย (BodyBag + เช็คของในถุง)",
+    Default = false
+})
+T_BodyBags:OnChanged(function(val) Config.ESP_BodyBags = ReadToggleVal(val, T_BodyBags) end)
+
+local T_Traps = Tabs.PlayerBaseESP:AddToggle("T_Traps", {
+    Title = "ESP กับดักในบ้าน (Shotgun Trap / Flame Turret)",
+    Default = false
+})
 T_Traps:OnChanged(function(val) Config.ESP_Traps = ReadToggleVal(val, T_Traps) end)
 
 Tabs.PlayerBaseESP:AddSlider("PlayerDistSlider", {
@@ -1738,41 +2453,154 @@ Tabs.PlayerBaseESP:AddSlider("PlayerDistSlider", {
 })
 
 -- ------------------------------------------------------------------------------
--- TAB 3: AUTO SPARK & ESP แร่ + ผ้า
+-- TAB 3: AUTO-LOOT VACUUM (ดูดของ), AUTO SPARK & ESP แร่ + ผืนหญ้า
 -- ------------------------------------------------------------------------------
-local AutoSparkToggle = Tabs.ResourceESP:AddToggle("AutoSparkToggle", { Title = "หันกล้องตีจุด Spark ของแร่อัตโนมัติ (Auto-Hit Ore Spark)", Default = false })
+local AutoPickupToggle = Tabs.ResourceESP:AddToggle("AutoPickupToggle", {
+    Title = "ดูดของตกพื้น & ผืนหญ้ารอบตัวอัตโนมัติ (Ground Item Vacuum)",
+    Description = "ดูดไอเทมที่ดรอปบนพื้น ผืนหญ้า/ต้นผ้า เห็ด และแอปเปิ้ลรอบตัวเข้ากระเป๋าทันที",
+    Default = false
+})
+AutoPickupToggle:OnChanged(function(val) Config.AutoPickupEnabled = ReadToggleVal(val, AutoPickupToggle) end)
+
+local AutoLootOpenToggle = Tabs.ResourceESP:AddToggle("AutoLootOpenToggle", {
+    Title = "ดูดของในกล่อง/ถุงศพทันทีที่กดเปิด (Instant Open-Crate Vacuum)",
+    Description = "พอกดเปิดกล่อง ถุงศพ หรือเตาเผาปุ๊บ จะกวาดของเข้าตัวอัตโนมัติในพริบตา",
+    Default = false
+})
+AutoLootOpenToggle:OnChanged(function(val) Config.AutoLootOpenContainer = ReadToggleVal(val, AutoLootOpenToggle) end)
+
+local AutoLootNearbyToggle = Tabs.ResourceESP:AddToggle("AutoLootNearbyToggle", {
+    Title = "ดูดของจากกล่อง & ถุงศพรอบตัวโดยไม่ต้องกดเปิดเอง (Remote Crate Vacuum)",
+    Description = "แค่เดินผ่านกล่องดรอป กล่องไม้ไม่ล็อก หรือถุงศพ จะดึงของข้างในเข้าตัวอัตโนมัติ",
+    Default = false
+})
+AutoLootNearbyToggle:OnChanged(function(val) Config.AutoLootNearbyContainers = ReadToggleVal(val, AutoLootNearbyToggle) end)
+
+local LootFilterDropdown = Tabs.ResourceESP:AddDropdown("LootFilterDropdown", {
+    Title = "โหมดคัดกรองของที่จะดูด (Loot Filter)",
+    Values = { "All", "Valuables" },
+    Default = "All",
+})
+LootFilterDropdown:OnChanged(function(val) Config.LootFilterMode = val end)
+
+Tabs.ResourceESP:AddSlider("PickupRangeSlider", {
+    Title = "ระยะดูดของรอบตัวอัตโนมัติ (Studs)",
+    Default = 14,
+    Min = 5,
+    Max = 22,
+    Rounding = 0,
+    Callback = function(val) Config.AutoPickupRange = val end
+})
+
+local AutoSparkToggle = Tabs.ResourceESP:AddToggle("AutoSparkToggle", {
+    Title = "หันกล้องตีจุด Spark ของแร่อัตโนมัติ (Auto-Hit Ore Spark)",
+    Default = false
+})
 AutoSparkToggle:OnChanged(function(val) Config.AutoSparkEnabled = ReadToggleVal(val, AutoSparkToggle) end)
 
-local T_Stone = Tabs.ResourceESP:AddToggle("T_Stone", { Title = "ESP แร่หิน (Stone Ore)", Default = false })
+local T_GrassCloth = Tabs.ResourceESP:AddToggle("T_GrassCloth", {
+    Title = "ESP ผืนหญ้า / ต้นผ้า & ของป่า (Grass / Cloth / Hemp)",
+    Default = false
+})
+T_GrassCloth:OnChanged(function(val) Config.ESP_GrassCloth = ReadToggleVal(val, T_GrassCloth) end)
+
+local T_HideGrass = Tabs.ResourceESP:AddToggle("T_HideGrass", {
+    Title = "ซ่อนหญ้า 3D บนพื้นแมพ (Remove Terrain Grass)",
+    Default = false
+})
+T_HideGrass:OnChanged(function(val)
+    Config.HideTerrainGrass = ReadToggleVal(val, T_HideGrass)
+    ApplyTerrainGrassState(Config.HideTerrainGrass)
+end)
+
+local T_Stone = Tabs.ResourceESP:AddToggle("T_Stone", {
+    Title = "ESP แร่หิน (Stone Ore)",
+    Default = false
+})
 T_Stone:OnChanged(function(val) Config.ESP_StoneOre = ReadToggleVal(val, T_Stone) end)
 
-local T_Metal = Tabs.ResourceESP:AddToggle("T_Metal", { Title = "ESP แร่เหล็ก (Metal Ore)", Default = false })
+local T_Metal = Tabs.ResourceESP:AddToggle("T_Metal", {
+    Title = "ESP แร่เหล็ก (Metal Ore)",
+    Default = false
+})
 T_Metal:OnChanged(function(val) Config.ESP_MetalOre = ReadToggleVal(val, T_Metal) end)
 
-local T_Sulfur = Tabs.ResourceESP:AddToggle("T_Sulfur", { Title = "ESP แร่กำมะถัน (Sulfur Ore)", Default = false })
+local T_Sulfur = Tabs.ResourceESP:AddToggle("T_Sulfur", {
+    Title = "ESP แร่กำมะถัน (Sulfur Ore)",
+    Default = false
+})
 T_Sulfur:OnChanged(function(val) Config.ESP_SulfurOre = ReadToggleVal(val, T_Sulfur) end)
 
-local T_Cloth = Tabs.ResourceESP:AddToggle("T_Cloth", { Title = "ESP ผ้า & ของป่า (Cloth / Hemp / Mushrooms)", Default = false })
-T_Cloth:OnChanged(function(val) Config.ESP_ClothAndFood = ReadToggleVal(val, T_Cloth) end)
+-- ------------------------------------------------------------------------------
+-- TAB 4: CRATE INSPECTOR, ESP กล่อง & ตั้งค่าความลื่น (ANTI-LAG)
+-- ------------------------------------------------------------------------------
+local T_ShowContents = Tabs.LootESP:AddToggle("T_ShowContents", {
+    Title = "แสดงรายชื่อไอเทมข้างในกล่อง & ตู้ TC บน ESP (Crate Item Checker)",
+    Default = true
+})
+T_ShowContents:OnChanged(function(val) Config.ShowCrateContents = ReadToggleVal(val, T_ShowContents) end)
 
--- ------------------------------------------------------------------------------
--- TAB 4: ESP กล่องเก็บของ & ของตกพื้น
--- ------------------------------------------------------------------------------
-local T_Storage = Tabs.LootESP:AddToggle("T_Storage", { Title = "ESP กล่องเก็บของ & เตาเผา (Crate / Furnace / Stash)", Default = false })
+local T_AutoFetchStorage = Tabs.LootESP:AddToggle("T_AutoFetchStorage", {
+    Title = "ซิงค์ดูของในกล่องระยะใกล้โดยไม่ต้องกดเปิดเอง (Auto-Fetch Storage)",
+    Default = false
+})
+T_AutoFetchStorage:OnChanged(function(val) Config.AutoFetchStorage = ReadToggleVal(val, T_AutoFetchStorage) end)
+
+local T_Storage = Tabs.LootESP:AddToggle("T_Storage", {
+    Title = "ESP กล่องเก็บของในบ้าน & เตาเผา (Wooden Crate / Stash / Furnace)",
+    Default = false
+})
 T_Storage:OnChanged(function(val) Config.ESP_Storage = ReadToggleVal(val, T_Storage) end)
 
-local T_UnlockedOnly = Tabs.LootESP:AddToggle("T_UnlockedOnly", { Title = "กรองเฉพาะกล่องที่ไม่ได้ล็อก (Unlocked Only)", Default = false })
+local T_UnlockedOnly = Tabs.LootESP:AddToggle("T_UnlockedOnly", {
+    Title = "กรองเฉพาะกล่องบ้านที่ไม่ได้ล็อก (Unlocked Only)",
+    Default = false
+})
 T_UnlockedOnly:OnChanged(function(val) Config.ESP_OnlyUnlockedStorage = ReadToggleVal(val, T_UnlockedOnly) end)
 
-local T_Dropped = Tabs.LootESP:AddToggle("T_Dropped", { Title = "ESP ของและอาวุธที่ดรอปบนพื้น (Dropped Items)", Default = false })
+local T_MilitaryCrates = Tabs.LootESP:AddToggle("T_MilitaryCrates", {
+    Title = "ESP กล่องทหาร (Military Crate)",
+    Default = false
+})
+T_MilitaryCrates:OnChanged(function(val) Config.ESP_MilitaryCrates = ReadToggleVal(val, T_MilitaryCrates) end)
+
+local T_LootCrates = Tabs.LootESP:AddToggle("T_LootCrates", {
+    Title = "ESP กล่องดรอปที่เก็บของได้ & แอร์ดรอป (Crate / Supply Drop / Locked Crate)",
+    Default = false
+})
+T_LootCrates:OnChanged(function(val) Config.ESP_LootCrates = ReadToggleVal(val, T_LootCrates) end)
+
+local T_Barrels = Tabs.LootESP:AddToggle("T_Barrels", {
+    Title = "ESP ถังเหล็ก (Barrel)",
+    Default = false
+})
+T_Barrels:OnChanged(function(val) Config.ESP_Barrels = ReadToggleVal(val, T_Barrels) end)
+
+local T_FuelBarrels = Tabs.LootESP:AddToggle("T_FuelBarrels", {
+    Title = "ESP ถังแก๊ส / ถังน้ำมัน (Fuel Barrel)",
+    Default = false
+})
+T_FuelBarrels:OnChanged(function(val) Config.ESP_FuelBarrels = ReadToggleVal(val, T_FuelBarrels) end)
+
+local T_Dropped = Tabs.LootESP:AddToggle("T_Dropped", {
+    Title = "ESP ของและอาวุธที่ดรอปบนพื้น (Dropped Items)",
+    Default = false
+})
 T_Dropped:OnChanged(function(val) Config.ESP_DroppedItems = ReadToggleVal(val, T_Dropped) end)
 
-local T_WorldCrates = Tabs.LootESP:AddToggle("T_WorldCrates", { Title = "ESP กล่องฟาร์มตามแมพ & แอร์ดรอป (Military / Locked Crate / Barrel)", Default = false })
-T_WorldCrates:OnChanged(function(val) Config.ESP_WorldCrates = ReadToggleVal(val, T_WorldCrates) end)
+Tabs.LootESP:AddSlider("MaxESPCountSlider", {
+    Title = "จำกัดจำนวนป้าย ESP สูงสุดบนจอ (แก้แล็ค 100%)",
+    Description = "แสดงเฉพาะของที่อยู่ใกล้ตัวที่สุดตามจำนวนนี้ ยิ่งน้อยยิ่งลื่น",
+    Default = 45,
+    Min = 15,
+    Max = 120,
+    Rounding = 0,
+    Callback = function(val) Config.MaxWorldESPCount = val end
+})
 
 Tabs.LootESP:AddSlider("WorldDistSlider", {
-    Title = "ระยะมองเห็นแร่และสิ่งของสูงสุด (Studs)",
-    Default = 600,
+    Title = "ระยะมองเห็นกล่อง ถัง และสิ่งของสูงสุด (Studs)",
+    Default = 650,
     Min = 100,
     Max = 2000,
     Rounding = 0,
@@ -1862,6 +2690,7 @@ GlobalEnv.RustHubCleanup = function()
     end
     ActiveConnections = {}
     pcall(function() ApplyFullbrightState(false) end)
+    pcall(function() ApplyTerrainGrassState(false) end)
     if OverlayGui and OverlayGui.Parent then
         pcall(function() OverlayGui:Destroy() end)
     end
