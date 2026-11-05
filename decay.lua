@@ -1,7 +1,6 @@
 -- ==============================================================================
--- Rust Roblox Script V9
--- Features: Fullbright & SetAmbient Blocker, Hitbox Expander, Silent Aim, Pro Aimbot, Full ESP
--- Supports: PC & Mobile | Anti-Cheat Bypass Included
+-- Rust Roblox Script V10 (Stable Edition)
+-- Fixed: 100% Gun Damage & Ammo, Door Interaction, FOV Toggle, Smooth Predictive Aimbot & Hitbox Expander
 -- ==============================================================================
 
 local Players = game:GetService("Players")
@@ -15,64 +14,115 @@ local LocalPlayer = Players.LocalPlayer
 local Camera = workspace.CurrentCamera
 
 -- ==============================================================================
--- [GLOBAL CONFIG]
+-- [0] AUTO CLEANUP OLD SCRIPT INSTANCES (ล้างสคริปต์เก่าที่รันค้างไว้ทั้งหมด)
+-- ==============================================================================
+local GlobalEnv = (getgenv and getgenv()) or _G
+
+if GlobalEnv.RustHubCleanup then
+    pcall(GlobalEnv.RustHubCleanup)
+end
+
+-- ลบ BindToRenderStep ของเวอร์ชันเก่าทั้งหมดเผื่อค้างอยู่
+for _, bindName in ipairs({
+    "RustV6AimbotEngine",
+    "RustV7AimbotEngine",
+    "RustV8AimbotEngine",
+    "RustV9AimbotEngine",
+    "RustV10AimbotEngine"
+}) do
+    pcall(function() RunService:UnbindFromRenderStep(bindName) end)
+end
+
+local SafeGuiParent = (gethui and gethui()) or CoreGui
+for _, parentGui in ipairs({ SafeGuiParent, CoreGui, LocalPlayer:FindFirstChild("PlayerGui") }) do
+    if parentGui then
+        local old = parentGui:FindFirstChild("RustSafeOverlay")
+        if old then pcall(function() old:Destroy() end) end
+    end
+end
+
+local ActiveConnections = {}
+local function AddConnection(conn)
+    table.insert(ActiveConnections, conn)
+    return conn
+end
+
+-- ==============================================================================
+-- [1] ANTI-CHEAT BYPASS (บล็อกเฉพาะ ReplicatedStorage.AntiCheat.RemoteEvents.Auto)
+-- ไม่แตะต้องรีโมทปืนและ Raycast เพื่อให้ยิงดาเมจเข้า 100% และเปิดประตูได้ปกติ
+-- ==============================================================================
+local AntiCheatRemote = nil
+pcall(function()
+    AntiCheatRemote = ReplicatedStorage:WaitForChild("AntiCheat", 5)
+        and ReplicatedStorage.AntiCheat:WaitForChild("RemoteEvents", 5)
+        and ReplicatedStorage.AntiCheat.RemoteEvents:WaitForChild("Auto", 5)
+end)
+
+if hookmetamethod and not GlobalEnv._RustAC Bypassed then
+    GlobalEnv._RustACBypassed = true
+    local oldNamecall
+    oldNamecall = hookmetamethod(game, "__namecall", newcclosure(function(self, ...)
+        local method = getnamecallmethod()
+        if not checkcaller() and (method == "FireServer" or method == "InvokeServer") then
+            if (AntiCheatRemote and self == AntiCheatRemote) or (self.Name == "Auto" and self.Parent and self.Parent.Name == "RemoteEvents") then
+                return nil
+            end
+        end
+        return oldNamecall(self, ...)
+    end))
+end
+
+-- ==============================================================================
+-- [GLOBAL CONFIG (ตั้งค่าเริ่มต้นเป็น false ทั้งหมด ไม่ให้ค้างตอนรัน)]
 -- ==============================================================================
 local Config = {
-    -- 1. ระบบ Aimbot (ล็อคกล้อง)
+    -- 1. ระบบ Aimbot ล็อคหัว + ดักทางคนวิ่ง
     AimlockEnabled = false,
-    AimActivationMode = "Always", -- "Always", "HoldClick"
-    AimSmoothness = 0.45,
-    StickyAim = true,
-    BreakawayThreshold = 8.5,
-
-    -- 2. ระบบ Silent Aim (กระสุนเลี้ยวเข้าหัว)
-    SilentAimEnabled = false,
-    SilentAimHitChance = 100,
-    AutoTriggerbot = false,
-
-    -- 3. ระบบ Hitbox Expander (ขยายหัว/ตัวศัตรู)
-    HitboxExpanderEnabled = false,
-    HitboxTargetPart = "Head", -- "Head", "Torso", "HumanoidRootPart"
-    HitboxSize = 6.5,
-    HitboxTransparency = 0.65,
-    HitboxExpandBots = true,
-
-    -- 4. การเลือกจุดเล็ง & การคำนวณดักทางวิ่ง
+    AimActivationMode = "HoldClick", -- "HoldClick" (ล็อคตอนกดยิง/เล็ง), "Always" (ล็อคตลอดเวลา)
     TargetPartMode = "Head", -- "Head", "Torso", "ClosestPart"
-    AirborneBodyAim = true,
-    UsePrediction = true,
-    PredictionMultiplier = 1.05,
-    BulletDropCompensation = true,
+    AirborneBodyAim = true, -- สลับเล็งลำตัวอัตโนมัติเมื่อศัตรูกระโดด
+    StickyAim = true, -- ล็อคเกาะเป้าหมายเดิมไม่สวิงมั่ว
+    AimSmoothness = 0.50, -- ความไวในการล็อคเป้า (0.10 - 0.95)
+    UsePrediction = true, -- คำนวณดักหน้าคนวิ่ง
+    PredictionMultiplier = 1.05, -- ตัวคูณระยะดักหน้า
+    BulletDropCompensation = true, -- ชดเชยกระสุนตก
+    BreakawayThreshold = 9.0, -- แรงสะบัดเมาส์เพื่อดึงเป้าออก
     MaxAimDistance = 900,
-    FOVRadius = 160,
-    ShowFOV = true,
-    ShowTargetLine = true,
-    ShowStatusHUD = true,
+    FOVRadius = 150,
+    ShowFOV = false, -- ปิดไว้ตอนเริ่ม รันแล้วไม่ค้างบนจอ
+    ShowTargetLine = false,
+    ShowStatusHUD = false,
     LockScientists = true,
     WallCheck = false,
     TeamCheck = false,
 
-    -- 5. ปุ่มลัดคีย์บอร์ด (Keybinds)
-    Key_ToggleAimbot = Enum.KeyCode.X,
-    Key_ToggleSilentAim = Enum.KeyCode.Z,
-    Key_SwitchHitbox = Enum.KeyCode.V,
+    -- 2. ระบบ Hitbox Expander (ขยายหัว/ตัวศัตรูให้ยิงโดนง่าย ดาเมจเข้า 100%)
+    HitboxExpanderEnabled = false,
+    HitboxTargetPart = "Head", -- "Head", "Torso", "HumanoidRootPart"
+    HitboxSize = 6.5, -- ขนาดหัวที่ขยาย (Studs)
+    HitboxTransparency = 0.65,
+    HitboxExpandBots = true,
 
-    -- 6. ระบบลดแรงดีดปืน (No Recoil)
+    -- 3. ปุ่มลัดคีย์บอร์ด (Keybinds)
+    Key_ToggleAimbot = Enum.KeyCode.X,
+    Key_ToggleHitbox = Enum.KeyCode.Z,
+    Key_SwitchHitboxPart = Enum.KeyCode.V,
+
+    -- 4. ระบบลดแรงดีดปืน (No Recoil)
     NoRecoilEnabled = false,
     RecoilScale = 0,
 
-    -- 7. ระบบ Fullbright & ตัดหมอก (TimeService.SetAmbient Blocker)
+    -- 5. ระบบ Fullbright & ตัดหมอก
     FullbrightEnabled = false,
     FullbrightLevel = 2.5,
     RemoveFogAndShadows = true,
 
-    -- 8. ระบบตีแร่โดนจุด Spark อัตโนมัติ (Auto-Hit Spark)
+    -- 6. ระบบตีแร่โดนจุด Spark อัตโนมัติ (Camera Assist)
     AutoSparkEnabled = false,
-    AutoSparkCameraAssist = true,
     ShowSparkESP = true,
     SparkRange = 10,
 
-    -- 9. ระบบ ESP แยกหมวดหมู่
+    -- 7. ระบบ ESP แยกหมวดหมู่
     ESP_Players = false,
     ESP_Scientists = false,
     ESP_Sleepers = false,
@@ -98,7 +148,7 @@ local CurrentTargetName = "None"
 local CachedScientists = {}
 
 -- ==============================================================================
--- [1] FULLBRIGHT & SETAMBIENT BLOCKER (บล็อก ReplicatedStorage.TimeService.SetAmbient)
+-- [2] FULLBRIGHT & SETAMBIENT BLOCKER (บล็อก ReplicatedStorage.TimeService.SetAmbient)
 -- ==============================================================================
 local SetAmbientRemote = nil
 pcall(function()
@@ -119,7 +169,6 @@ local OriginalLighting = {
 }
 
 local OriginalAtmosphere = {}
-
 local function SaveAtmosphereState()
     for _, child in ipairs(Lighting:GetChildren()) do
         if child:IsA("Atmosphere") and not OriginalAtmosphere[child] then
@@ -187,19 +236,15 @@ local function ApplyFullbrightState(enabled)
     end
 end
 
--- ถ้าเปิดรับอีเวนต์ SetAmbient ในขณะที่ไม่มี getconnections ให้เขียนทับกลับเป็นสว่างทันที
 if SetAmbientRemote then
-    SetAmbientRemote.OnClientEvent:Connect(function()
+    AddConnection(SetAmbientRemote.OnClientEvent:Connect(function()
         if Config.FullbrightEnabled then
-            task.defer(function()
-                ApplyFullbrightState(true)
-            end)
+            task.defer(function() ApplyFullbrightState(true) end)
         end
-    end)
+    end))
 end
 
--- คอยรักษาค่าความสว่างและตัดหมอกตลอดเวลาที่เปิด Fullbright
-RunService.Heartbeat:Connect(function()
+AddConnection(RunService.Heartbeat:Connect(function()
     if Config.FullbrightEnabled then
         Lighting.Ambient = Color3.fromRGB(210, 210, 210)
         Lighting.OutdoorAmbient = Color3.fromRGB(210, 210, 210)
@@ -220,10 +265,10 @@ RunService.Heartbeat:Connect(function()
             end
         end
     end
-end)
+end))
 
 -- ==============================================================================
--- [2] LOAD GAME MODULES & NO RECOIL HOOK
+-- [3] LOAD GAME ITEM DATA & NO RECOIL HOOK
 -- ==============================================================================
 local GameItemData = nil
 local GameAmmoTypes = nil
@@ -240,9 +285,12 @@ pcall(function()
     if RecoilConfigModule then
         local RecoilConfig = require(RecoilConfigModule)
         if RecoilConfig and type(RecoilConfig.GetRecoil) == "function" then
-            local oldGetRecoil = RecoilConfig.GetRecoil
+            if not RecoilConfig._OrigGetRecoil then
+                RecoilConfig._OrigGetRecoil = RecoilConfig.GetRecoil
+            end
+            local origFn = RecoilConfig._OrigGetRecoil
             RecoilConfig.GetRecoil = function(shotIndex, gunName, ...)
-                local recoilVec = oldGetRecoil(shotIndex, gunName, ...)
+                local recoilVec = origFn(shotIndex, gunName, ...)
                 if Config.NoRecoilEnabled and typeof(recoilVec) == "Vector3" then
                     return recoilVec * (Config.RecoilScale / 100)
                 end
@@ -259,11 +307,16 @@ local MiningTools = {
     ["Jackhammer"] = true,
 }
 
+local function GetLocalCharacter()
+    return LocalPlayer.Character or workspace:FindFirstChild(LocalPlayer.Name)
+end
+
 local function IsHoldingMiningTool()
-    local char = LocalPlayer.Character
-    if not char then return false end
-    for _, child in ipairs(char:GetChildren()) do
-        if MiningTools[child.Name] then return true end
+    local char = GetLocalCharacter()
+    if char then
+        for _, child in ipairs(char:GetChildren()) do
+            if MiningTools[child.Name] then return true end
+        end
     end
     local viewmodel = Camera and Camera:FindFirstChild("Viewmodel")
     if viewmodel then
@@ -277,6 +330,17 @@ local function IsHoldingMiningTool()
     local selSlot = hotbar and hotbar:FindFirstChild("SelectedSlot")
     if selSlot and selSlot.Value and selSlot.Value:FindFirstChild("ItemName") then
         if MiningTools[selSlot.Value.ItemName.Value] then return true end
+    end
+    return false
+end
+
+local function IsGameMenuOpen()
+    local pGui = LocalPlayer:FindFirstChild("PlayerGui")
+    local inv = pGui and pGui:FindFirstChild("Inventory")
+    if inv then
+        if inv:FindFirstChild("InInventory") and inv.InInventory.Value == true then return true end
+        if inv:FindFirstChild("InUI") and inv.InUI.Value == true then return true end
+        if inv:FindFirstChild("Inventory") and inv.Inventory.Visible == true then return true end
     end
     return false
 end
@@ -295,7 +359,7 @@ local function GetCurrentWeaponBallistics()
     if slotObj and slotObj:FindFirstChild("ItemName") and slotObj.ItemName.Value ~= "" then
         weaponName = slotObj.ItemName.Value
     else
-        local char = LocalPlayer.Character
+        local char = GetLocalCharacter()
         if char then
             for _, child in ipairs(char:GetChildren()) do
                 if child:IsA("Tool") or (child:IsA("Model") and child:FindFirstChild("GunComponents")) then
@@ -325,8 +389,33 @@ local function GetCurrentWeaponBallistics()
 end
 
 -- ==============================================================================
--- [3] TEAM CHECK & HITBOX EXPANDER ENGINE
+-- [4] CHARACTER RESOLVER, TEAM CHECK & NON-BLOCKING HITBOX EXPANDER
 -- ==============================================================================
+local function GetPlayerCharacter(player)
+    if not player then return nil end
+    if player.Character and player.Character.Parent then
+        return player.Character
+    end
+    local wsChar = workspace:FindFirstChild(player.Name)
+    if wsChar and wsChar:IsA("Model") then
+        return wsChar
+    end
+    return nil
+end
+
+local function GetCharacterHealth(char)
+    if not char or not char.Parent then return 0 end
+    local hum = char:FindFirstChildOfClass("Humanoid")
+    if hum then
+        return hum.Health
+    end
+    local hpVal = char:FindFirstChild("Health")
+    if hpVal and hpVal:IsA("ValueBase") and tonumber(hpVal.Value) then
+        return tonumber(hpVal.Value)
+    end
+    return 0
+end
+
 local function IsTeammate(player)
     if not Config.TeamCheck then return false end
     if player == LocalPlayer then return true end
@@ -387,8 +476,12 @@ end
 
 local function ApplyHitboxToCharacter(character, shouldExpand)
     if not character then return end
-    local hum = character:FindFirstChildOfClass("Humanoid")
-    local isAlive = hum and hum.Health > 0
+    local hp = GetCharacterHealth(character)
+    local root = character:FindFirstChild("HumanoidRootPart") or character:FindFirstChild("Head")
+
+    -- เช็กไม่ให้ขยายหัวของคนที่นอนอยู่ (Sleeper) เพื่อไม่ให้บังเวลาเดินไปเก็บของหรือเปิดประตู
+    local isLyingDown = root and (math.abs(root.CFrame.UpVector.Y) < 0.5)
+    local isAlive = (hp > 0) and not isLyingDown
 
     if not shouldExpand or not isAlive then
         for _, partName in ipairs({ "Head", "Torso", "UpperTorso", "HumanoidRootPart" }) do
@@ -419,21 +512,24 @@ local function ApplyHitboxToCharacter(character, shouldExpand)
         }
     end
 
-    local desiredSize = Vector3.new(Config.HitboxSize, Config.HitboxSize, Config.HitboxSize)
-    targetPart.Size = desiredSize
-    targetPart.Transparency = Config.HitboxTransparency
-    targetPart.CanCollide = false
-    targetPart.Massless = true
-    targetPart.CanQuery = true
+    pcall(function()
+        targetPart.Size = Vector3.new(Config.HitboxSize, Config.HitboxSize, Config.HitboxSize)
+        targetPart.Transparency = Config.HitboxTransparency
+        targetPart.CanCollide = false
+        targetPart.Massless = true
+        targetPart.CanQuery = true
+    end)
 end
 
 task.spawn(function()
-    while true do
+    while GlobalEnv.RustHubCleanup do
         if Config.HitboxExpanderEnabled then
             for _, player in ipairs(Players:GetPlayers()) do
-                if player ~= LocalPlayer and player.Character then
-                    local expandThis = not IsTeammate(player)
-                    ApplyHitboxToCharacter(player.Character, expandThis)
+                if player ~= LocalPlayer then
+                    local char = GetPlayerCharacter(player)
+                    if char then
+                        ApplyHitboxToCharacter(char, not IsTeammate(player))
+                    end
                 end
             end
 
@@ -454,7 +550,7 @@ task.spawn(function()
 end)
 
 -- ==============================================================================
--- [4] REAL-TIME VELOCITY TRACKER & BALLISTICS PREDICTION
+-- [5] REAL-TIME VELOCITY TRACKER & BALLISTICS PREDICTION
 -- ==============================================================================
 local VelocityTracker = {}
 
@@ -529,233 +625,7 @@ local function CalculatePredictedAimPosition(targetPart, targetModel)
 end
 
 -- ==============================================================================
--- [5] ANTI-CHEAT BYPASS + SILENT AIM ENGINE
--- ==============================================================================
-local AntiCheatRemote = nil
-local GunRemotes = {}
-
-pcall(function()
-    AntiCheatRemote = ReplicatedStorage:WaitForChild("AntiCheat", 5)
-        and ReplicatedStorage.AntiCheat:WaitForChild("RemoteEvents", 5)
-        and ReplicatedStorage.AntiCheat.RemoteEvents:WaitForChild("Auto", 5)
-
-    local gunRemFolder = ReplicatedStorage:WaitForChild("GunSystem", 5)
-        and ReplicatedStorage.GunSystem:WaitForChild("RemoteEvents", 5)
-    if gunRemFolder then
-        GunRemotes[gunRemFolder:FindFirstChild("BulletFire")] = "BulletFire"
-        GunRemotes[gunRemFolder:FindFirstChild("Shot")] = "Shot"
-        GunRemotes[gunRemFolder:FindFirstChild("BowShoot")] = "BowShoot"
-        GunRemotes[gunRemFolder:FindFirstChild("ShotHit")] = "ShotHit"
-        GunRemotes[gunRemFolder:FindFirstChild("Damage")] = "Damage"
-    end
-end)
-
-local function ShouldSilentAimRedirect()
-    if not Config.SilentAimEnabled then return false end
-    if IsHoldingMiningTool() then return false end
-    if not CurrentLockedPart or not CurrentLockedPart.Parent or not CurrentPredictedPos then return false end
-    if Config.SilentAimHitChance < 100 and math.random(1, 100) > Config.SilentAimHitChance then
-        return false
-    end
-    return true
-end
-
-pcall(function()
-    local ballisticsMod = ReplicatedStorage:WaitForChild("GunSystem", 5)
-        and ReplicatedStorage.GunSystem:WaitForChild("Ballistics", 5)
-    if ballisticsMod and ballisticsMod:IsA("ModuleScript") then
-        local Ballistics = require(ballisticsMod)
-        if type(Ballistics) == "table" and not Ballistics._SilentHooked then
-            Ballistics._SilentHooked = true
-            for fnName, fn in pairs(Ballistics) do
-                if type(fn) == "function" then
-                    Ballistics[fnName] = function(...)
-                        if ShouldSilentAimRedirect() then
-                            local args = { ... }
-                            local originVec = nil
-                            for i, v in ipairs(args) do
-                                if typeof(v) == "Vector3" then
-                                    if not originVec and (v - Camera.CFrame.Position).Magnitude < 25 then
-                                        originVec = v
-                                    elseif originVec then
-                                        local mag = v.Magnitude
-                                        if mag > 0.5 then
-                                            args[i] = (CurrentPredictedPos - originVec).Unit * mag
-                                        end
-                                    end
-                                elseif typeof(v) == "CFrame" and (v.Position - Camera.CFrame.Position).Magnitude < 25 then
-                                    originVec = v.Position
-                                    args[i] = CFrame.lookAt(v.Position, CurrentPredictedPos)
-                                end
-                            end
-                            return fn(table.unpack(args))
-                        end
-                        return fn(...)
-                    end
-                end
-            end
-        end
-    end
-end)
-
-local function GetActiveSparkPart(oreModel)
-    if not oreModel or not oreModel.Parent then return nil end
-    local sys = oreModel:FindFirstChild("System")
-    if not sys then return nil end
-    local hp = sys:FindFirstChild("Health")
-    if hp and hp.Value <= 0 then return nil end
-    local sparkSpots = sys:FindFirstChild("SparkSpots")
-    local sparkNum = sys:FindFirstChild("SparkNumber")
-    if sparkSpots and sparkNum then
-        local spotPart = sparkSpots:FindFirstChild(tostring(sparkNum.Value))
-        if spotPart and spotPart:IsA("BasePart") then return spotPart end
-        local firstSpot = sparkSpots:FindFirstChildWhichIsA("BasePart")
-        if firstSpot then return firstSpot end
-    end
-    return oreModel.PrimaryPart or oreModel:FindFirstChildWhichIsA("BasePart")
-end
-
-local function GetNearestOreSpark(maxDist)
-    local char = LocalPlayer.Character
-    local root = char and char:FindFirstChild("HumanoidRootPart")
-    local oreSpawns = workspace:FindFirstChild("OreSpawns")
-    if not root or not oreSpawns then return nil, nil end
-
-    local bestSparkPart, bestOre = nil, nil
-    local shortestDist = maxDist or Config.SparkRange
-
-    for _, zone in ipairs(oreSpawns:GetChildren()) do
-        for _, ore in ipairs(zone:GetChildren()) do
-            local primary = ore.PrimaryPart or ore:FindFirstChild("Top") or ore:FindFirstChildWhichIsA("BasePart")
-            if primary then
-                local dist = (primary.Position - root.Position).Magnitude
-                if dist <= shortestDist then
-                    local sparkPart = GetActiveSparkPart(ore)
-                    if sparkPart then
-                        shortestDist = dist
-                        bestSparkPart = sparkPart
-                        bestOre = ore
-                    end
-                end
-            end
-        end
-    end
-    return bestSparkPart, bestOre
-end
-
-local function HookRaycastModule(modInstance)
-    pcall(function()
-        if not modInstance or not modInstance:IsA("ModuleScript") then return end
-        local RayMod = require(modInstance)
-        if type(RayMod) ~= "table" or RayMod._V9Hooked then return end
-        RayMod._V9Hooked = true
-
-        if type(RayMod.Raycast) == "function" then
-            local oldRaycast = RayMod.Raycast
-            RayMod.Raycast = function(dist, filter, ...)
-                if ShouldSilentAimRedirect() then
-                    local origin = Camera.CFrame.Position
-                    local dir = (CurrentPredictedPos - origin).Unit * (dist or 1000)
-                    local rp = RaycastParams.new()
-                    rp.FilterType = Enum.RaycastFilterType.Exclude
-                    rp.IgnoreWater = true
-                    rp.FilterDescendantsInstances = { LocalPlayer.Character, Camera }
-                    local res = workspace:Raycast(origin, dir, rp)
-                    if res then return res end
-                end
-                return oldRaycast(dist, filter, ...)
-            end
-        end
-
-        if type(RayMod.GetPosition) == "function" then
-            local oldGetPos = RayMod.GetPosition
-            RayMod.GetPosition = function(dist, filter, ...)
-                if ShouldSilentAimRedirect() or (Config.AimlockEnabled and CurrentPredictedPos and not IsHoldingMiningTool()) then
-                    return CurrentPredictedPos
-                end
-                if Config.AutoSparkEnabled and IsHoldingMiningTool() then
-                    local sparkPart = GetNearestOreSpark(Config.SparkRange)
-                    if sparkPart then return sparkPart.Position end
-                end
-                return oldGetPos(dist, filter, ...)
-            end
-        end
-
-        if type(RayMod.GetInstance) == "function" then
-            local oldGetInst = RayMod.GetInstance
-            RayMod.GetInstance = function(dist, filter, ...)
-                if ShouldSilentAimRedirect() or (Config.AimlockEnabled and CurrentLockedPart and not IsHoldingMiningTool()) then
-                    return CurrentLockedPart
-                end
-                if Config.AutoSparkEnabled and IsHoldingMiningTool() then
-                    local sparkPart = GetNearestOreSpark(Config.SparkRange)
-                    if sparkPart then return sparkPart end
-                end
-                return oldGetInst(dist, filter, ...)
-            end
-        end
-    end)
-end
-
-HookRaycastModule(ReplicatedStorage:FindFirstChild("CenterScreenRaycast"))
-if ReplicatedStorage:FindFirstChild("Deployables") and ReplicatedStorage.Deployables:FindFirstChild("Modules") then
-    HookRaycastModule(ReplicatedStorage.Deployables.Modules:FindFirstChild("CenterScreenRaycast"))
-end
-
-if hookmetamethod then
-    local oldNamecall
-    oldNamecall = hookmetamethod(game, "__namecall", newcclosure(function(self, ...)
-        local method = getnamecallmethod()
-
-        if not checkcaller() then
-            if method == "FireServer" or method == "InvokeServer" then
-                if (AntiCheatRemote and self == AntiCheatRemote) or (self.Name == "Auto" and self.Parent and self.Parent.Name == "RemoteEvents") then
-                    return nil
-                end
-
-                if GunRemotes[self] and ShouldSilentAimRedirect() then
-                    local args = { ... }
-                    local originPos = Camera.CFrame.Position
-                    for i, arg in ipairs(args) do
-                        if typeof(arg) == "Vector3" then
-                            if (arg - originPos).Magnitude < 25 then
-                                originPos = arg
-                            else
-                                local mag = arg.Magnitude
-                                if math.abs(mag - 1) < 0.05 then
-                                    args[i] = (CurrentPredictedPos - originPos).Unit
-                                elseif mag > 30 and (arg - CurrentPredictedPos).Magnitude > 15 then
-                                    args[i] = (CurrentPredictedPos - originPos).Unit * mag
-                                end
-                            end
-                        elseif typeof(arg) == "CFrame" and (arg.Position - originPos).Magnitude < 25 then
-                            originPos = arg.Position
-                            args[i] = CFrame.lookAt(arg.Position, CurrentPredictedPos)
-                        elseif typeof(arg) == "Instance" and arg:IsA("BasePart") and CurrentLockedModel and arg:IsDescendantOf(CurrentLockedModel) then
-                            args[i] = CurrentLockedPart
-                        end
-                    end
-                    return oldNamecall(self, table.unpack(args))
-                end
-            end
-
-            if method == "Raycast" and self == workspace and ShouldSilentAimRedirect() then
-                local origin, direction, params = ...
-                if typeof(origin) == "Vector3" and typeof(direction) == "Vector3" then
-                    if (origin - Camera.CFrame.Position).Magnitude < 20 and direction.Magnitude > 25 then
-                        local newDir = (CurrentPredictedPos - origin).Unit * direction.Magnitude
-                        return oldNamecall(self, origin, newDir, params)
-                    end
-                end
-            end
-        end
-
-        return oldNamecall(self, ...)
-    end))
-end
-
--- ==============================================================================
--- [6] SOLID-HIT WALLCHECK & SMART BONE SELECTOR
+-- [6] SOLID-HIT WALLCHECK, ORE SPARK FINDER & SMART BONE SELECTOR
 -- ==============================================================================
 local function IsTargetVisible(targetPart, targetModel)
     if not Config.WallCheck then return true end
@@ -763,7 +633,7 @@ local function IsTargetVisible(targetPart, targetModel)
 
     local origin = Camera.CFrame.Position
     local direction = targetPart.Position - origin
-    local filterList = { LocalPlayer.Character, Camera }
+    local filterList = { GetLocalCharacter(), Camera }
 
     local rayParams = RaycastParams.new()
     rayParams.FilterType = Enum.RaycastFilterType.Exclude
@@ -836,13 +706,54 @@ local function GetSmartAimPart(character)
     return head or torso
 end
 
--- ==============================================================================
--- [7] UI OVERLAY (STATUS HUD, FOV CIRCLE, TARGET LINE & ESP)
--- ==============================================================================
-local SafeGuiParent = (gethui and gethui()) or CoreGui
-local OldOverlay = SafeGuiParent:FindFirstChild("RustSafeOverlay")
-if OldOverlay then OldOverlay:Destroy() end
+local function GetActiveSparkPart(oreModel)
+    if not oreModel or not oreModel.Parent then return nil end
+    local sys = oreModel:FindFirstChild("System")
+    if not sys then return nil end
+    local hp = sys:FindFirstChild("Health")
+    if hp and hp.Value <= 0 then return nil end
+    local sparkSpots = sys:FindFirstChild("SparkSpots")
+    local sparkNum = sys:FindFirstChild("SparkNumber")
+    if sparkSpots and sparkNum then
+        local spotPart = sparkSpots:FindFirstChild(tostring(sparkNum.Value))
+        if spotPart and spotPart:IsA("BasePart") then return spotPart end
+        local firstSpot = sparkSpots:FindFirstChildWhichIsA("BasePart")
+        if firstSpot then return firstSpot end
+    end
+    return oreModel.PrimaryPart or oreModel:FindFirstChildWhichIsA("BasePart")
+end
 
+local function GetNearestOreSpark(maxDist)
+    local char = GetLocalCharacter()
+    local root = char and char:FindFirstChild("HumanoidRootPart")
+    local oreSpawns = workspace:FindFirstChild("OreSpawns")
+    if not root or not oreSpawns then return nil, nil end
+
+    local bestSparkPart, bestOre = nil, nil
+    local shortestDist = maxDist or Config.SparkRange
+
+    for _, zone in ipairs(oreSpawns:GetChildren()) do
+        for _, ore in ipairs(zone:GetChildren()) do
+            local primary = ore.PrimaryPart or ore:FindFirstChild("Top") or ore:FindFirstChildWhichIsA("BasePart")
+            if primary then
+                local dist = (primary.Position - root.Position).Magnitude
+                if dist <= shortestDist then
+                    local sparkPart = GetActiveSparkPart(ore)
+                    if sparkPart then
+                        shortestDist = dist
+                        bestSparkPart = sparkPart
+                        bestOre = ore
+                    end
+                end
+            end
+        end
+    end
+    return bestSparkPart, bestOre
+end
+
+-- ==============================================================================
+-- [7] UI OVERLAY (FOV CIRCLE, TARGET LINE, STATUS HUD & ESP)
+-- ==============================================================================
 local OverlayGui = Instance.new("ScreenGui")
 OverlayGui.Name = "RustSafeOverlay"
 OverlayGui.IgnoreGuiInset = true
@@ -862,7 +773,7 @@ StatusHUD.TextSize = 13
 StatusHUD.TextColor3 = Color3.fromRGB(255, 255, 255)
 StatusHUD.TextStrokeTransparency = 0.2
 StatusHUD.Text = ""
-StatusHUD.Visible = true
+StatusHUD.Visible = false
 StatusHUD.Parent = OverlayGui
 
 local HUDCorner = Instance.new("UICorner")
@@ -878,7 +789,7 @@ local FOVCircleFrame = Instance.new("Frame")
 FOVCircleFrame.Name = "FOVCircle"
 FOVCircleFrame.AnchorPoint = Vector2.new(0.5, 0.5)
 FOVCircleFrame.BackgroundTransparency = 1
-FOVCircleFrame.Visible = false
+FOVCircleFrame.Visible = false -- เริ่มต้นปิดไว้เสมอ
 FOVCircleFrame.Parent = OverlayGui
 
 local FOVCorner = Instance.new("UICorner")
@@ -931,7 +842,7 @@ SparkMarker.Visible = false
 SparkMarker.Parent = OverlayGui
 
 -- ==============================================================================
--- [8] AIMBOT & SILENT AIM TARGETING ENGINE
+-- [8] DUAL-STAGE AIMBOT ENGINE (ล็อคหัวแม่นยำ 100% + ดักทางคนวิ่ง)
 -- ==============================================================================
 local function FindBestTargetInFOV()
     local screenCenter = Camera.ViewportSize / 2
@@ -943,11 +854,11 @@ local function FindBestTargetInFOV()
 
     for _, player in ipairs(Players:GetPlayers()) do
         if player ~= LocalPlayer and not IsTeammate(player) then
-            local char = player.Character
-            local hum = char and char:FindFirstChildOfClass("Humanoid")
+            local char = GetPlayerCharacter(player)
+            local hp = GetCharacterHealth(char)
             local part = GetSmartAimPart(char)
 
-            if hum and hum.Health > 0 and part then
+            if hp > 0 and part then
                 local worldDist = (part.Position - camPos).Magnitude
                 if worldDist <= Config.MaxAimDistance then
                     local screenPos, onScreen = Camera:WorldToViewportPoint(part.Position)
@@ -968,9 +879,9 @@ local function FindBestTargetInFOV()
     if Config.LockScientists then
         for _, botModel in ipairs(CachedScientists) do
             if botModel and botModel.Parent then
-                local hum = botModel:FindFirstChildOfClass("Humanoid")
+                local hp = GetCharacterHealth(botModel)
                 local part = GetSmartAimPart(botModel)
-                if hum and hum.Health > 0 and part then
+                if hp > 0 and part then
                     local worldDist = (part.Position - camPos).Magnitude
                     if worldDist <= Config.MaxAimDistance then
                         local screenPos, onScreen = Camera:WorldToViewportPoint(part.Position)
@@ -1000,17 +911,18 @@ pcall(function()
     if frame then
         local attackBtn = frame:FindFirstChild("Attack")
         if attackBtn then
-            attackBtn.MouseButton1Down:Connect(function() IsMobileAttacking = true end)
-            attackBtn.MouseButton1Up:Connect(function() IsMobileAttacking = false end)
+            AddConnection(attackBtn.MouseButton1Down:Connect(function() IsMobileAttacking = true end))
+            AddConnection(attackBtn.MouseButton1Up:Connect(function() IsMobileAttacking = false end))
         end
         local aimBtn = frame:FindFirstChild("Aim")
         if aimBtn and aimBtn:FindFirstChild("Toggle") then
-            aimBtn.Toggle.Changed:Connect(function(val) IsMobileAiming = val end)
+            AddConnection(aimBtn.Toggle.Changed:Connect(function(val) IsMobileAiming = val end))
         end
     end
 end)
 
 local function IsAimKeyActive()
+    if IsGameMenuOpen() then return false end
     if Config.AimActivationMode == "Always" then return true end
     return UserInputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton2)
         or UserInputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton1)
@@ -1018,35 +930,38 @@ local function IsAimKeyActive()
         or IsMobileAiming
 end
 
-pcall(function() RunService:UnbindFromRenderStep("RustV6AimbotEngine") end)
-pcall(function() RunService:UnbindFromRenderStep("RustV7AimbotEngine") end)
-pcall(function() RunService:UnbindFromRenderStep("RustV8AimbotEngine") end)
-pcall(function() RunService:UnbindFromRenderStep("RustV9AimbotEngine") end)
+local function GetKeyNameSafe(keyItem)
+    if typeof(keyItem) == "EnumItem" then return keyItem.Name end
+    return tostring(keyItem or "None")
+end
 
-local LastTriggerShot = 0
-
-RunService:BindToRenderStep("RustV9AimbotEngine", Enum.RenderPriority.Last.Value + 1, function()
+local function UpdateAimbotFrame()
     Camera = workspace.CurrentCamera
     if not Camera then return end
 
     local screenCenter = Camera.ViewportSize / 2
-    FOVCircleFrame.Position = UDim2.fromOffset(screenCenter.X, screenCenter.Y)
-    FOVCircleFrame.Size = UDim2.fromOffset(Config.FOVRadius * 2, Config.FOVRadius * 2)
-    FOVCircleFrame.Visible = Config.ShowFOV
 
-    StatusHUD.Visible = Config.ShowStatusHUD
+    -- 1. อัปเดตวงกลม FOV ตามสถานะจริง
+    FOVCircleFrame.Visible = (Config.ShowFOV == true)
+    if Config.ShowFOV then
+        FOVCircleFrame.Position = UDim2.fromOffset(screenCenter.X, screenCenter.Y)
+        FOVCircleFrame.Size = UDim2.fromOffset(Config.FOVRadius * 2, Config.FOVRadius * 2)
+    end
+
+    -- 2. อัปเดตแถบ Status HUD อย่างปลอดภัย
+    StatusHUD.Visible = (Config.ShowStatusHUD == true)
     if Config.ShowStatusHUD then
         local aimTxt = Config.AimlockEnabled and "ON" or "OFF"
-        local silentTxt = Config.SilentAimEnabled and "ON" or "OFF"
         local hbTxt = Config.HitboxExpanderEnabled and ("ON (" .. tostring(Config.HitboxSize) .. ")") or "OFF"
         StatusHUD.Text = string.format(
-            "[%s] Aimbot: %s | [%s] Silent: %s | Hitbox: %s | เล็ง: %s | เป้า: %s",
-            Config.Key_ToggleAimbot.Name, aimTxt,
-            Config.Key_ToggleSilentAim.Name, silentTxt,
-            hbTxt, Config.TargetPartMode, CurrentTargetName
+            "[%s] Aimbot: %s | [%s] ขยายหัว: %s | เล็ง: %s | เป้า: %s",
+            GetKeyNameSafe(Config.Key_ToggleAimbot), aimTxt,
+            GetKeyNameSafe(Config.Key_ToggleHitbox), hbTxt,
+            tostring(Config.TargetPartMode), tostring(CurrentTargetName)
         )
     end
 
+    -- 3. ระบบช่วยตีแร่โดนจุด Spark
     if Config.AutoSparkEnabled then
         local sparkPart = GetNearestOreSpark(Config.SparkRange)
         if sparkPart then
@@ -1059,8 +974,8 @@ RunService:BindToRenderStep("RustV9AimbotEngine", Enum.RenderPriority.Last.Value
             end
 
             local isAttacking = UserInputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton1) or IsMobileAttacking
-            if Config.AutoSparkCameraAssist and isAttacking and IsHoldingMiningTool() then
-                Camera.CFrame = Camera.CFrame:Lerp(CFrame.lookAt(Camera.CFrame.Position, sparkPart.Position), 0.55)
+            if isAttacking and IsHoldingMiningTool() and not IsGameMenuOpen() then
+                Camera.CFrame = Camera.CFrame:Lerp(CFrame.lookAt(Camera.CFrame.Position, sparkPart.Position), 0.60)
             end
         else
             SparkMarker.Visible = false
@@ -1069,7 +984,8 @@ RunService:BindToRenderStep("RustV9AimbotEngine", Enum.RenderPriority.Last.Value
         SparkMarker.Visible = false
     end
 
-    if not Config.AimlockEnabled and not Config.SilentAimEnabled then
+    -- 4. ระบบค้นหาและล็อคหัวศัตรู
+    if not Config.AimlockEnabled then
         CurrentLockedPart = nil
         CurrentLockedModel = nil
         CurrentPredictedPos = nil
@@ -1081,14 +997,14 @@ RunService:BindToRenderStep("RustV9AimbotEngine", Enum.RenderPriority.Last.Value
     end
 
     if Config.StickyAim and CurrentLockedModel and CurrentLockedModel.Parent then
-        local hum = CurrentLockedModel:FindFirstChildOfClass("Humanoid")
+        local hp = GetCharacterHealth(CurrentLockedModel)
         CurrentLockedPart = GetSmartAimPart(CurrentLockedModel)
         if CurrentLockedPart then
             local screenPos, onScreen = Camera:WorldToViewportPoint(CurrentLockedPart.Position)
             local dist2D = (Vector2.new(screenPos.X, screenPos.Y) - screenCenter).Magnitude
             local worldDist = (CurrentLockedPart.Position - Camera.CFrame.Position).Magnitude
 
-            if not hum or hum.Health <= 0 or not onScreen or dist2D > (Config.FOVRadius * 1.15) or worldDist > Config.MaxAimDistance or not IsTargetVisible(CurrentLockedPart, CurrentLockedModel) then
+            if hp <= 0 or not onScreen or dist2D > (Config.FOVRadius * 1.2) or worldDist > Config.MaxAimDistance or not IsTargetVisible(CurrentLockedPart, CurrentLockedModel) then
                 CurrentLockedPart = nil
                 CurrentLockedModel = nil
                 CurrentPredictedPos = nil
@@ -1109,7 +1025,7 @@ RunService:BindToRenderStep("RustV9AimbotEngine", Enum.RenderPriority.Last.Value
     end
 
     if CurrentLockedPart and CurrentLockedModel then
-        FOVStroke.Color = Config.SilentAimEnabled and Color3.fromRGB(180, 80, 255) or Color3.fromRGB(255, 75, 75)
+        FOVStroke.Color = Color3.fromRGB(255, 65, 65)
         CurrentPredictedPos = CalculatePredictedAimPosition(CurrentLockedPart, CurrentLockedModel)
 
         local predScreen, predOnScreen = Camera:WorldToViewportPoint(CurrentPredictedPos)
@@ -1124,50 +1040,42 @@ RunService:BindToRenderStep("RustV9AimbotEngine", Enum.RenderPriority.Last.Value
             TargetLine.Size = UDim2.fromOffset(lineLen, 1.5)
             TargetLine.Position = UDim2.fromOffset((screenCenter.X + targetVec2.X) / 2, (screenCenter.Y + targetVec2.Y) / 2)
             TargetLine.Rotation = math.deg(math.atan2(diffVec.Y, diffVec.X))
-            TargetLine.BackgroundColor3 = Config.SilentAimEnabled and Color3.fromRGB(190, 90, 255) or Color3.fromRGB(255, 70, 70)
             TargetLine.Visible = true
         else
             PredictionDot.Visible = false
             TargetLine.Visible = false
         end
 
-        if Config.AimlockEnabled and IsAimKeyActive() and not IsHoldingMiningTool() then
+        if IsAimKeyActive() and not IsHoldingMiningTool() then
             local mouseDelta = UserInputService:GetMouseDelta()
             local deltaMag = mouseDelta.Magnitude
             local effectiveSmooth = Config.AimSmoothness
 
             local targetVel = GetTargetVelocity(CurrentLockedModel, CurrentLockedModel:FindFirstChild("HumanoidRootPart") or CurrentLockedPart)
             if targetVel.Magnitude > 8 then
-                effectiveSmooth = math.clamp(effectiveSmooth * 1.35, 0.1, 0.95)
+                effectiveSmooth = math.clamp(effectiveSmooth * 1.35, 0.15, 0.95)
             end
 
             local isBreakingAway = false
             if deltaMag >= Config.BreakawayThreshold and predOnScreen then
                 local toTarget = Vector2.new(predScreen.X, predScreen.Y) - screenCenter
-                if toTarget.Magnitude > 2 and mouseDelta.Unit:Dot(toTarget.Unit) < -0.1 then
+                if toTarget.Magnitude > 2 and mouseDelta.Unit:Dot(toTarget.Unit) < -0.15 then
                     isBreakingAway = true
                 end
             end
 
-            if not isBreakingAway then
+            if not isBreakingAway and CurrentPredictedPos then
                 local goalCFrame = CFrame.lookAt(Camera.CFrame.Position, CurrentPredictedPos)
                 Camera.CFrame = Camera.CFrame:Lerp(goalCFrame, effectiveSmooth)
 
+                -- ส่งค่าขยับเมาส์แบบจำนวนเต็มให้สคริปต์กล้องของเกมอัปเดตมุมตามด้วย
                 if mousemoverel and predOnScreen then
-                    local offsetX = (predScreen.X - screenCenter.X) * (effectiveSmooth * 0.45)
-                    local offsetY = (predScreen.Y - screenCenter.Y) * (effectiveSmooth * 0.45)
-                    if math.abs(offsetX) >= 1 or math.abs(offsetY) >= 1 then
-                        pcall(mousemoverel, offsetX, offsetY)
+                    local dx = math.round((predScreen.X - screenCenter.X) * (effectiveSmooth * 0.50))
+                    local dy = math.round((predScreen.Y - screenCenter.Y) * (effectiveSmooth * 0.50))
+                    if math.abs(dx) >= 1 or math.abs(dy) >= 1 then
+                        pcall(mousemoverel, dx, dy)
                     end
                 end
-            end
-        end
-
-        if Config.AutoTriggerbot and mouse1click and predOnScreen and not IsHoldingMiningTool() then
-            local distFromCrosshair = (Vector2.new(predScreen.X, predScreen.Y) - screenCenter).Magnitude
-            if (Config.SilentAimEnabled or distFromCrosshair <= 18) and (os.clock() - LastTriggerShot >= 0.12) then
-                LastTriggerShot = os.clock()
-                pcall(mouse1click)
             end
         end
     else
@@ -1176,7 +1084,19 @@ RunService:BindToRenderStep("RustV9AimbotEngine", Enum.RenderPriority.Last.Value
         PredictionDot.Visible = false
         TargetLine.Visible = false
     end
-end)
+end
+
+-- ผูกทั้ง BindToRenderStep และ RenderStepped เพื่อให้ทำงานชนะสคริปต์กล้องของเกมทุกกรณี
+RunService:BindToRenderStep("RustV10AimbotEngine", Enum.RenderPriority.Last.Value + 10, UpdateAimbotFrame)
+AddConnection(RunService.RenderStepped:Connect(function()
+    if Config.AimlockEnabled and CurrentPredictedPos and IsAimKeyActive() and not IsHoldingMiningTool() then
+        Camera = workspace.CurrentCamera
+        if Camera then
+            local goalCFrame = CFrame.lookAt(Camera.CFrame.Position, CurrentPredictedPos)
+            Camera.CFrame = Camera.CFrame:Lerp(goalCFrame, Config.AimSmoothness)
+        end
+    end
+end))
 
 -- ==============================================================================
 -- [9] HELPER FUNCTIONS FOR ESP & BACKGROUND SCANNER
@@ -1235,14 +1155,14 @@ end
 
 local function IsActiveOnlineCharacter(model)
     for _, p in ipairs(Players:GetPlayers()) do
-        if p.Character == model then return true end
+        if p.Character == model or model.Name == p.Name then return true end
     end
     return false
 end
 
 local function GetSleeperInfo(obj)
     if typeof(obj) ~= "Instance" or not obj:IsA("Model") then return false, nil end
-    if obj == LocalPlayer.Character or obj.Name == "Viewmodel" then return false, nil end
+    if obj == GetLocalCharacter() or obj.Name == "Viewmodel" then return false, nil end
 
     local head = obj:FindFirstChild("Head")
     local nameUI = head and head:FindFirstChild("NameUI")
@@ -1268,14 +1188,14 @@ end
 
 local function IsScientistBot(obj)
     if typeof(obj) ~= "Instance" or not obj:IsA("Model") then return false, nil end
-    if obj == LocalPlayer.Character or obj.Name == "Viewmodel" or obj.Name == "StarterCharacter" then return false, nil end
+    if obj == GetLocalCharacter() or obj.Name == "Viewmodel" or obj.Name == "StarterCharacter" then return false, nil end
     if IsActiveOnlineCharacter(obj) then return false, nil end
 
-    local hum = obj:FindFirstChildOfClass("Humanoid")
+    local hp = GetCharacterHealth(obj)
     local root = obj:FindFirstChild("HumanoidRootPart")
     local head = obj:FindFirstChild("Head")
 
-    if hum and hum.Health > 0 and root and head then
+    if hp > 0 and root and head then
         local lowerName = string.lower(obj.Name)
         if string.find(lowerName, "scientist") then return true, obj.Name end
         local isStanding = math.abs(root.CFrame.UpVector.Y) >= 0.55
@@ -1354,7 +1274,7 @@ local ClothAndFoodKeywords = {
 }
 
 task.spawn(function()
-    while true do
+    while GlobalEnv.RustHubCleanup do
         local newTracked = {}
         local newScientists = {}
 
@@ -1462,7 +1382,7 @@ task.spawn(function()
             end
 
             for _, obj in ipairs(workspace:GetChildren()) do
-                if obj:IsA("Model") and obj ~= LocalPlayer.Character and obj.Name ~= "Viewmodel" then
+                if obj:IsA("Model") and obj ~= GetLocalCharacter() and obj.Name ~= "Viewmodel" then
                     local itemNameVal = obj:FindFirstChild("ItemName")
                     local amountVal = obj:FindFirstChild("Amount")
 
@@ -1494,11 +1414,11 @@ task.spawn(function()
                             table.insert(newScientists, obj)
                             if Config.ESP_Scientists then
                                 local part = GetTargetPart(obj)
-                                local hum = obj:FindFirstChildOfClass("Humanoid")
-                                if part and hum then
+                                local hp = GetCharacterHealth(obj)
+                                if part then
                                     table.insert(newTracked, {
                                         Key = obj, Part = part, Category = "Scientist",
-                                        Title = string.format("[BOT: %s] [%d HP]", tostring(sciName), math.floor(hum.Health)),
+                                        Title = string.format("[BOT: %s] [%d HP]", tostring(sciName), math.floor(hp)),
                                         Color = Color3.fromRGB(255, 120, 40)
                                     })
                                 end
@@ -1545,11 +1465,11 @@ task.spawn(function()
                                 table.insert(newScientists, desc)
                                 if Config.ESP_Scientists then
                                     local part = GetTargetPart(desc)
-                                    local hum = desc:FindFirstChildOfClass("Humanoid")
-                                    if part and hum then
+                                    local hp = GetCharacterHealth(desc)
+                                    if part then
                                         table.insert(newTracked, {
                                             Key = desc, Part = part, Category = "Scientist",
-                                            Title = string.format("[BOT: %s] [%d HP]", tostring(sciName), math.floor(hum.Health)),
+                                            Title = string.format("[BOT: %s] [%d HP]", tostring(sciName), math.floor(hp)),
                                             Color = Color3.fromRGB(255, 120, 40)
                                         })
                                     end
@@ -1632,29 +1552,29 @@ local function CleanupESP(activeKeys)
     end
 end
 
-RunService.RenderStepped:Connect(function()
+AddConnection(RunService.RenderStepped:Connect(function()
     local activeKeys = {}
-    local myChar = LocalPlayer.Character
+    local myChar = GetLocalCharacter()
     local myRoot = myChar and myChar:FindFirstChild("HumanoidRootPart")
     local refPos = (myRoot and myRoot.Position) or Camera.CFrame.Position
 
     for _, player in ipairs(Players:GetPlayers()) do
-        if player ~= LocalPlayer and player.Character then
-            local char = player.Character
-            local root = char:FindFirstChild("HumanoidRootPart")
+        if player ~= LocalPlayer then
+            local char = GetPlayerCharacter(player)
+            local root = char and char:FindFirstChild("HumanoidRootPart")
             if root then GetTargetVelocity(char, root) end
         end
     end
 
     if Config.ESP_Players then
         for _, player in ipairs(Players:GetPlayers()) do
-            if player ~= LocalPlayer and player.Character then
-                local char = player.Character
-                local root = char:FindFirstChild("HumanoidRootPart")
-                local head = char:FindFirstChild("Head")
-                local hum = char:FindFirstChildOfClass("Humanoid")
+            if player ~= LocalPlayer then
+                local char = GetPlayerCharacter(player)
+                local root = char and char:FindFirstChild("HumanoidRootPart")
+                local head = char and char:FindFirstChild("Head")
+                local hp = GetCharacterHealth(char)
 
-                if root and head and hum and hum.Health > 0 then
+                if root and head and hp > 0 then
                     local dist = (root.Position - refPos).Magnitude
                     if dist <= Config.PlayerRenderDistance then
                         local topPos, onScreenTop = Camera:WorldToViewportPoint(head.Position + Vector3.new(0, 1.2, 0))
@@ -1677,7 +1597,7 @@ RunService.RenderStepped:Connect(function()
                             esp.Label.Text = string.format(
                                 "%s [%d HP]\nถือ: %s (%d m)",
                                 player.Name,
-                                math.floor(hum.Health),
+                                math.floor(hp),
                                 weapon,
                                 math.floor(dist)
                             )
@@ -1714,64 +1634,66 @@ RunService.RenderStepped:Connect(function()
     end
 
     CleanupESP(activeKeys)
-end)
+end))
 
 -- ==============================================================================
--- [11] FLUENT UI SETUP, KEYBINDS & MOBILE QUICK TOGGLE BUTTONS
+-- [11] FLUENT UI SETUP & RELIABLE KEYBIND HANDLER
 -- ==============================================================================
 local Fluent = loadstring(game:HttpGet("https://github.com/dawid-scripts/Fluent/releases/latest/download/main.lua"))()
 
 local Window = Fluent:CreateWindow({
-    Title = "Rust Survival Hub V9",
-    SubTitle = "Fullbright + Hitbox + Silent Aim + Pro Aimbot + ESP",
+    Title = "Rust Survival Hub V10 (Stable)",
+    SubTitle = "Aimbot + Hitbox Expander + Fullbright + Full ESP",
     TabWidth = 155,
-    Size = UDim2.fromOffset(620, 495),
+    Size = UDim2.fromOffset(620, 490),
     Acrylic = false,
     Theme = "Dark",
     MinimizeKey = Enum.KeyCode.RightControl
 })
 
 local Tabs = {
-    Combat = Window:AddTab({ Title = "Aimbot & Hitbox", Icon = "crosshair" }),
+    Combat = Window:AddTab({ Title = "Aimbot & ขยายหัว", Icon = "crosshair" }),
     PlayerBaseESP = Window:AddTab({ Title = "ESP คน & แสงแมพ", Icon = "users" }),
     ResourceESP = Window:AddTab({ Title = "ESP แร่ & ตี Spark", Icon = "pickaxe" }),
     LootESP = Window:AddTab({ Title = "ESP ของตก & กล่อง", Icon = "box" }),
 }
 
+local function ReadToggleVal(val, toggleObj)
+    if type(val) == "boolean" then return val end
+    if toggleObj and type(toggleObj.Value) == "boolean" then return toggleObj.Value end
+    return false
+end
+
 -- ------------------------------------------------------------------------------
--- TAB 1: PRO AIMBOT, SILENT AIM & HITBOX EXPANDER
+-- TAB 1: PRO AIMBOT & SMART HITBOX EXPANDER
 -- ------------------------------------------------------------------------------
 local AimToggle = Tabs.Combat:AddToggle("AimToggle", {
-    Title = "เปิดใช้งาน Aimbot ล็อคกล้อง (Camera Aimlock)",
-    Description = "ดูดเป้ากล้องตามหัวศัตรูพร้อมคำนวณดักทางวิ่งอัตโนมัติ",
+    Title = "เปิดใช้งาน Aimbot ล็อคหัว (ปุ่มลัด: X)",
+    Description = "ดูดเป้าเข้าหัวศัตรูพร้อมคำนวณดักทางวิ่งอัตโนมัติ",
     Default = false
 })
-AimToggle:OnChanged(function() Config.AimlockEnabled = AimToggle.Value end)
-
-local SilentAimToggle = Tabs.Combat:AddToggle("SilentAimToggle", {
-    Title = "เปิดใช้งาน Silent Aim (กระสุนเลี้ยวเข้าหัวในวง FOV)",
-    Description = "กระสุนและธนูเลี้ยวเข้าหาจุดดักหน้าศัตรูโดยไม่ต้องหันกล้องตาม",
-    Default = false
-})
-SilentAimToggle:OnChanged(function() Config.SilentAimEnabled = SilentAimToggle.Value end)
+AimToggle:OnChanged(function(val)
+    Config.AimlockEnabled = ReadToggleVal(val, AimToggle)
+end)
 
 local HitboxToggle = Tabs.Combat:AddToggle("HitboxToggle", {
-    Title = "เปิดใช้งาน Hitbox Expander (ขยายหัวศัตรูให้ยิงโดนง่าย)",
-    Description = "ขยายขนาดพาร์ท Head ของศัตรูควบคู่กับ Silent Aim",
+    Title = "เปิดใช้งานขยายล็อคหัวศัตรู (Hitbox Expander | ปุ่มลัด: Z)",
+    Description = "ขยายขนาดหัวศัตรูให้ยิงโดนง่าย ดาเมจเข้าและกระสุนลดปกติ 100%",
     Default = false
 })
-HitboxToggle:OnChanged(function()
-    Config.HitboxExpanderEnabled = HitboxToggle.Value
+HitboxToggle:OnChanged(function(val)
+    Config.HitboxExpanderEnabled = ReadToggleVal(val, HitboxToggle)
     if not Config.HitboxExpanderEnabled then
         RestoreAllHitboxes()
     end
 end)
 
 Tabs.Combat:AddSlider("HitboxSizeSlider", {
-    Title = "ขนาดหัวศัตรู (Hitbox Size Studs)",
+    Title = "ขนาดขยายล็อคหัวศัตรู (Hitbox Size Studs)",
+    Description = "แนะนำ 5.5 - 8.5 Studs (ยิงเฉียดหัวก็โดนเต็มๆ)",
     Default = 6.5,
     Min = 2.0,
-    Max = 15.0,
+    Max = 14.0,
     Rounding = 1,
     Callback = function(val) Config.HitboxSize = val end
 })
@@ -1792,129 +1714,53 @@ local HitboxPartDropdown = Tabs.Combat:AddDropdown("HitboxPartDropdown", {
 })
 HitboxPartDropdown:OnChanged(function(val) Config.HitboxTargetPart = val end)
 
-Tabs.Combat:AddSlider("SilentHitChanceSlider", {
-    Title = "โอกาสกระสุนเลี้ยวเข้าเป้า (Silent Aim Hit Chance %)",
-    Default = 100,
-    Min = 10,
-    Max = 100,
-    Rounding = 0,
-    Callback = function(val) Config.SilentAimHitChance = val end
+local AimActDropdown = Tabs.Combat:AddDropdown("AimActDropdown", {
+    Title = "โหมดการทำงานของ Aimbot",
+    Values = { "HoldClick", "Always" },
+    Default = "HoldClick",
 })
-
-local AimKeybind = Tabs.Combat:AddKeybind("AimKeybind", {
-    Title = "ปุ่มลัดเปิด/ปิด Aimbot ด่วน (Toggle Aimbot Key)",
-    Mode = "Toggle",
-    Default = "X",
-    Callback = function()
-        AimToggle:SetValue(not Config.AimlockEnabled)
-        Fluent:Notify({
-            Title = "Aimbot Status",
-            Content = Config.AimlockEnabled and "เปิด Aimbot ล็อคหัวแล้ว" or "ปิด Aimbot แล้ว",
-            Duration = 1.5
-        })
-    end,
-    ChangedCallback = function(newKey)
-        if typeof(newKey) == "EnumItem" then Config.Key_ToggleAimbot = newKey end
-    end
-})
-
-local SilentKeybind = Tabs.Combat:AddKeybind("SilentKeybind", {
-    Title = "ปุ่มลัดเปิด/ปิด Silent Aim ด่วน (Toggle Silent Aim Key)",
-    Mode = "Toggle",
-    Default = "Z",
-    Callback = function()
-        SilentAimToggle:SetValue(not Config.SilentAimEnabled)
-        Fluent:Notify({
-            Title = "Silent Aim Status",
-            Content = Config.SilentAimEnabled and "เปิด Silent Aim กระสุนเลี้ยวแล้ว" or "ปิด Silent Aim แล้ว",
-            Duration = 1.5
-        })
-    end,
-    ChangedCallback = function(newKey)
-        if typeof(newKey) == "EnumItem" then Config.Key_ToggleSilentAim = newKey end
-    end
-})
+AimActDropdown:OnChanged(function(val) Config.AimActivationMode = val end)
 
 local TargetPartDropdown = Tabs.Combat:AddDropdown("TargetPartDropdown", {
-    Title = "เลือกชิ้นส่วนเป้าหมาย (Target Hitbox)",
+    Title = "จุดเล็งของ Aimbot (ปุ่มลัดสลับ หัว/ตัว: V)",
     Values = { "Head", "Torso", "ClosestPart" },
     Default = "Head",
 })
 TargetPartDropdown:OnChanged(function(val) Config.TargetPartMode = val end)
 
-local HitboxKeybind = Tabs.Combat:AddKeybind("HitboxKeybind", {
-    Title = "ปุ่มลัดสลับเล็ง หัว <-> ลำตัว ด่วน (Switch Hitbox Key)",
-    Mode = "Toggle",
-    Default = "V",
-    Callback = function()
-        local nextMode = (Config.TargetPartMode == "Head") and "Torso" or "Head"
-        TargetPartDropdown:SetValue(nextMode)
-        Fluent:Notify({
-            Title = "Target Hitbox",
-            Content = "เปลี่ยนจุดเล็งเป็น: " .. nextMode,
-            Duration = 1.5
-        })
-    end,
-    ChangedCallback = function(newKey)
-        if typeof(newKey) == "EnumItem" then Config.Key_SwitchHitbox = newKey end
+local FOVToggle = Tabs.Combat:AddToggle("FOVToggle", {
+    Title = "แสดงวงกลมระยะล็อค (FOV Circle)",
+    Default = false
+})
+FOVToggle:OnChanged(function(val)
+    Config.ShowFOV = ReadToggleVal(val, FOVToggle)
+    FOVCircleFrame.Visible = Config.ShowFOV
+end)
+
+local LineToggle = Tabs.Combat:AddToggle("LineToggle", {
+    Title = "แสดงเส้นชี้เป้าและจุดเขียวดักหน้า (Target Line)",
+    Default = false
+})
+LineToggle:OnChanged(function(val)
+    Config.ShowTargetLine = ReadToggleVal(val, LineToggle)
+    if not Config.ShowTargetLine then
+        PredictionDot.Visible = false
+        TargetLine.Visible = false
     end
-})
+end)
 
-local AirborneBodyToggle = Tabs.Combat:AddToggle("AirborneBodyToggle", {
-    Title = "สลับเล็งลำตัวอัตโนมัติเมื่อศัตรูกระโดด (Airborne Body-Switch)",
-    Default = true
-})
-AirborneBodyToggle:OnChanged(function() Config.AirborneBodyAim = AirborneBodyToggle.Value end)
-
-local StickyAimToggle = Tabs.Combat:AddToggle("StickyAimToggle", {
-    Title = "ล็อคเกาะเป้าหมายเดิมไม่สวิงมั่ว (Sticky Aim)",
-    Default = true
-})
-StickyAimToggle:OnChanged(function() Config.StickyAim = StickyAimToggle.Value end)
-
-local TriggerbotToggle = Tabs.Combat:AddToggle("TriggerbotToggle", {
-    Title = "ยิงอัตโนมัติเมื่อล็อคเป้าสำเร็จ (Auto Triggerbot)",
+local HUDToggle = Tabs.Combat:AddToggle("HUDToggle", {
+    Title = "แสดงแถบสถานะด้านบนจอ (Status HUD)",
     Default = false
 })
-TriggerbotToggle:OnChanged(function() Config.AutoTriggerbot = TriggerbotToggle.Value end)
-
-local AimActDropdown = Tabs.Combat:AddDropdown("AimActDropdown", {
-    Title = "เงื่อนไขการหันกล้องของ Aimbot",
-    Values = { "Always", "HoldClick" },
-    Default = "Always",
-})
-AimActDropdown:OnChanged(function(val) Config.AimActivationMode = val end)
-
-local PredictToggle = Tabs.Combat:AddToggle("PredictToggle", {
-    Title = "คำนวณดักทางคนวิ่งตามความเร็วกระสุนจริง (True Ballistics Lead)",
-    Default = true
-})
-PredictToggle:OnChanged(function() Config.UsePrediction = PredictToggle.Value end)
-
-local DropCompToggle = Tabs.Combat:AddToggle("DropCompToggle", {
-    Title = "ชดเชยวิถีกระสุนตกตามแรงโน้มถ่วง (Bullet Drop Compensation)",
-    Default = true
-})
-DropCompToggle:OnChanged(function() Config.BulletDropCompensation = DropCompToggle.Value end)
-
-local NoRecoilToggle = Tabs.Combat:AddToggle("NoRecoilToggle", {
-    Title = "เปิดใช้งานลดแรงดีดปืน (No Recoil)",
-    Default = false
-})
-NoRecoilToggle:OnChanged(function() Config.NoRecoilEnabled = NoRecoilToggle.Value end)
-
-Tabs.Combat:AddSlider("RecoilScaleSlider", {
-    Title = "เปอร์เซ็นต์แรงดีดปืน (Recoil Percentage %)",
-    Default = 0,
-    Min = 0,
-    Max = 100,
-    Rounding = 0,
-    Callback = function(val) Config.RecoilScale = val end
-})
+HUDToggle:OnChanged(function(val)
+    Config.ShowStatusHUD = ReadToggleVal(val, HUDToggle)
+    StatusHUD.Visible = Config.ShowStatusHUD
+end)
 
 Tabs.Combat:AddSlider("FOVRadiusSlider", {
     Title = "ขนาดวงกลม FOV (px)",
-    Default = 160,
+    Default = 150,
     Min = 40,
     Max = 450,
     Rounding = 0,
@@ -1922,13 +1768,20 @@ Tabs.Combat:AddSlider("FOVRadiusSlider", {
 })
 
 Tabs.Combat:AddSlider("SmoothnessSlider", {
-    Title = "ความไวในการดูดเป้ากล้อง (Aim Speed)",
-    Default = 0.45,
+    Title = "ความไวในการล็อคหัว (Aim Speed)",
+    Description = "0.50 = เกาะติดคนวิ่งไวและนุ่มนวล | 0.85 = ล็อคติดหัวทันที",
+    Default = 0.50,
     Min = 0.10,
     Max = 0.95,
     Rounding = 2,
     Callback = function(val) Config.AimSmoothness = val end
 })
+
+local PredictToggle = Tabs.Combat:AddToggle("PredictToggle", {
+    Title = "คำนวณดักทางคนวิ่งตามความเร็วกระสุนจริง (Velocity Prediction)",
+    Default = true
+})
+PredictToggle:OnChanged(function(val) Config.UsePrediction = ReadToggleVal(val, PredictToggle) end)
 
 Tabs.Combat:AddSlider("PredictionMultSlider", {
     Title = "ตัวคูณระยะดักหน้าคนวิ่ง (Prediction Multiplier)",
@@ -1939,46 +1792,92 @@ Tabs.Combat:AddSlider("PredictionMultSlider", {
     Callback = function(val) Config.PredictionMultiplier = val end
 })
 
-Tabs.Combat:AddSlider("MaxAimDistSlider", {
-    Title = "ระยะล็อคเป้าหมายสูงสุด (Max Aim Distance)",
-    Default = 900,
-    Min = 100,
-    Max = 2000,
+local DropCompToggle = Tabs.Combat:AddToggle("DropCompToggle", {
+    Title = "ชดเชยวิถีกระสุนตกตามระยะทาง (Bullet Drop Compensation)",
+    Default = true
+})
+DropCompToggle:OnChanged(function(val) Config.BulletDropCompensation = ReadToggleVal(val, DropCompToggle) end)
+
+local AirborneBodyToggle = Tabs.Combat:AddToggle("AirborneBodyToggle", {
+    Title = "สลับเล็งลำตัวอัตโนมัติเมื่อศัตรูกระโดด (Airborne Body-Switch)",
+    Default = true
+})
+AirborneBodyToggle:OnChanged(function(val) Config.AirborneBodyAim = ReadToggleVal(val, AirborneBodyToggle) end)
+
+local NoRecoilToggle = Tabs.Combat:AddToggle("NoRecoilToggle", {
+    Title = "เปิดใช้งานลดแรงดีดปืน (No Recoil)",
+    Default = false
+})
+NoRecoilToggle:OnChanged(function(val) Config.NoRecoilEnabled = ReadToggleVal(val, NoRecoilToggle) end)
+
+Tabs.Combat:AddSlider("RecoilScaleSlider", {
+    Title = "เปอร์เซ็นต์แรงดีดปืน (Recoil Percentage %)",
+    Default = 0,
+    Min = 0,
+    Max = 100,
     Rounding = 0,
-    Callback = function(val) Config.MaxAimDistance = val end
+    Callback = function(val) Config.RecoilScale = val end
 })
 
-local FOVToggle = Tabs.Combat:AddToggle("FOVToggle", { Title = "แสดงวงกลมระยะล็อค (FOV Circle)", Default = true })
-FOVToggle:OnChanged(function() Config.ShowFOV = FOVToggle.Value end)
-
-local LineToggle = Tabs.Combat:AddToggle("LineToggle", { Title = "แสดงเส้นชี้เป้าและจุดเขียวดักหน้า", Default = true })
-LineToggle:OnChanged(function() Config.ShowTargetLine = LineToggle.Value end)
-
-local HUDToggle = Tabs.Combat:AddToggle("HUDToggle", { Title = "แสดงแถบสถานะด้านบนจอ (Status HUD)", Default = true })
-HUDToggle:OnChanged(function() Config.ShowStatusHUD = HUDToggle.Value end)
-
-local LockBotToggle = Tabs.Combat:AddToggle("LockBotToggle", { Title = "ล็อคและขยายหัวบอทนักวิทยาศาสตร์ด้วย", Default = true })
-LockBotToggle:OnChanged(function()
-    Config.LockScientists = LockBotToggle.Value
-    Config.HitboxExpandBots = LockBotToggle.Value
+local LockBotToggle = Tabs.Combat:AddToggle("LockBotToggle", {
+    Title = "ล็อคและขยายหัวบอทนักวิทยาศาสตร์ด้วย",
+    Default = true
+})
+LockBotToggle:OnChanged(function(val)
+    local s = ReadToggleVal(val, LockBotToggle)
+    Config.LockScientists = s
+    Config.HitboxExpandBots = s
 end)
 
-local WallCheckToggle = Tabs.Combat:AddToggle("WallCheckToggle", { Title = "เช็กกำแพงกั้น (SolidHit WallCheck)", Default = false })
-WallCheckToggle:OnChanged(function() Config.WallCheck = WallCheckToggle.Value end)
+local WallCheckToggle = Tabs.Combat:AddToggle("WallCheckToggle", {
+    Title = "เช็กกำแพงกั้น (SolidHit WallCheck)",
+    Default = false
+})
+WallCheckToggle:OnChanged(function(val) Config.WallCheck = ReadToggleVal(val, WallCheckToggle) end)
 
-local TeamCheckToggle = Tabs.Combat:AddToggle("TeamCheckToggle", { Title = "ข้ามเพื่อนในปาร์ตี้ (TeamUI Check)", Default = false })
-TeamCheckToggle:OnChanged(function() Config.TeamCheck = TeamCheckToggle.Value end)
+local TeamCheckToggle = Tabs.Combat:AddToggle("TeamCheckToggle", {
+    Title = "ข้ามเพื่อนในปาร์ตี้ (TeamUI Check)",
+    Default = false
+})
+TeamCheckToggle:OnChanged(function(val) Config.TeamCheck = ReadToggleVal(val, TeamCheckToggle) end)
+
+-- ระบบจัดการปุ่มลัดคีย์บอร์ดโดยตรงผ่าน UserInputService (เสถียร 100% ไม่พึ่งพา Keybind ของ UI)
+AddConnection(UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    if gameProcessed then return end
+    if input.KeyCode == Config.Key_ToggleAimbot then
+        AimToggle:SetValue(not Config.AimlockEnabled)
+        Fluent:Notify({
+            Title = "Aimbot (ปุ่ม X)",
+            Content = Config.AimlockEnabled and "เปิด Aimbot ล็อคหัวแล้ว" or "ปิด Aimbot แล้ว",
+            Duration = 1.5
+        })
+    elseif input.KeyCode == Config.Key_ToggleHitbox then
+        HitboxToggle:SetValue(not Config.HitboxExpanderEnabled)
+        Fluent:Notify({
+            Title = "Hitbox Expander (ปุ่ม Z)",
+            Content = Config.HitboxExpanderEnabled and "เปิดขยายล็อคหัวแล้ว" or "ปิดขยายล็อคหัวแล้ว (คืนค่าปกติ)",
+            Duration = 1.5
+        })
+    elseif input.KeyCode == Config.Key_SwitchHitboxPart then
+        local nextMode = (Config.TargetPartMode == "Head") and "Torso" or "Head"
+        TargetPartDropdown:SetValue(nextMode)
+        Fluent:Notify({
+            Title = "จุดเล็ง (ปุ่ม V)",
+            Content = "สลับจุดเล็งเป็น: " .. nextMode,
+            Duration = 1.5
+        })
+    end
+end))
 
 -- ------------------------------------------------------------------------------
 -- TAB 2: FULLBRIGHT & ESP ผู้เล่น / บอท / เจ้าของบ้าน
 -- ------------------------------------------------------------------------------
 local FullbrightToggle = Tabs.PlayerBaseESP:AddToggle("FullbrightToggle", {
     Title = "เปิดใช้งาน Fullbright & ตัดหมอก (บล็อก TimeService.SetAmbient)",
-    Description = "ปรับแมพให้สว่างเหมือนตอนกลางวันตลอดเวลาและตัดหมอกทั้งหมด",
     Default = false
 })
-FullbrightToggle:OnChanged(function()
-    Config.FullbrightEnabled = FullbrightToggle.Value
+FullbrightToggle:OnChanged(function(val)
+    Config.FullbrightEnabled = ReadToggleVal(val, FullbrightToggle)
     ApplyFullbrightState(Config.FullbrightEnabled)
 end)
 
@@ -1990,29 +1889,27 @@ Tabs.PlayerBaseESP:AddSlider("FullbrightLevelSlider", {
     Rounding = 1,
     Callback = function(val)
         Config.FullbrightLevel = val
-        if Config.FullbrightEnabled then
-            Lighting.Brightness = val
-        end
+        if Config.FullbrightEnabled then Lighting.Brightness = val end
     end
 })
 
 local T_Players = Tabs.PlayerBaseESP:AddToggle("T_Players", { Title = "ESP ผู้เล่นออนไลน์ (ชื่อ + เลือด + ปืนที่ถือ)", Default = false })
-T_Players:OnChanged(function() Config.ESP_Players = T_Players.Value end)
+T_Players:OnChanged(function(val) Config.ESP_Players = ReadToggleVal(val, T_Players) end)
 
 local T_Scientists = Tabs.PlayerBaseESP:AddToggle("T_Scientists", { Title = "ESP บอทนักวิทยาศาสตร์ (Road / Monument Scientist)", Default = false })
-T_Scientists:OnChanged(function() Config.ESP_Scientists = T_Scientists.Value end)
+T_Scientists:OnChanged(function(val) Config.ESP_Scientists = ReadToggleVal(val, T_Scientists) end)
 
 local T_Sleepers = Tabs.PlayerBaseESP:AddToggle("T_Sleepers", { Title = "ESP คนนอนออฟไลน์ (Sleeper)", Default = false })
-T_Sleepers:OnChanged(function() Config.ESP_Sleepers = T_Sleepers.Value end)
+T_Sleepers:OnChanged(function(val) Config.ESP_Sleepers = ReadToggleVal(val, T_Sleepers) end)
 
 local T_BodyBags = Tabs.PlayerBaseESP:AddToggle("T_BodyBags", { Title = "ESP ถุงศพคนตาย (BodyBag)", Default = false })
-T_BodyBags:OnChanged(function() Config.ESP_BodyBags = T_BodyBags.Value end)
+T_BodyBags:OnChanged(function(val) Config.ESP_BodyBags = ReadToggleVal(val, T_BodyBags) end)
 
 local T_BaseOwner = Tabs.PlayerBaseESP:AddToggle("T_BaseOwner", { Title = "ESP ดูชื่อเจ้าของบ้าน (สแกนตู้ TC & เตียงนอน)", Default = false })
-T_BaseOwner:OnChanged(function() Config.ESP_BaseOwner = T_BaseOwner.Value end)
+T_BaseOwner:OnChanged(function(val) Config.ESP_BaseOwner = ReadToggleVal(val, T_BaseOwner) end)
 
 local T_Traps = Tabs.PlayerBaseESP:AddToggle("T_Traps", { Title = "ESP กับดักในบ้าน (Shotgun Trap / Flame Turret)", Default = false })
-T_Traps:OnChanged(function() Config.ESP_Traps = T_Traps.Value end)
+T_Traps:OnChanged(function(val) Config.ESP_Traps = ReadToggleVal(val, T_Traps) end)
 
 Tabs.PlayerBaseESP:AddSlider("PlayerDistSlider", {
     Title = "ระยะมองเห็นผู้เล่นและบอทสูงสุด (Studs)",
@@ -2026,38 +1923,35 @@ Tabs.PlayerBaseESP:AddSlider("PlayerDistSlider", {
 -- ------------------------------------------------------------------------------
 -- TAB 3: AUTO SPARK & ESP แร่ + ผ้า
 -- ------------------------------------------------------------------------------
-local AutoSparkToggle = Tabs.ResourceESP:AddToggle("AutoSparkToggle", { Title = "ตีแร่โดนจุด Spark อัตโนมัติ (Auto-Hit Ore Spark)", Default = false })
-AutoSparkToggle:OnChanged(function() Config.AutoSparkEnabled = AutoSparkToggle.Value end)
-
-local SparkCamToggle = Tabs.ResourceESP:AddToggle("SparkCamToggle", { Title = "ช่วยหันกล้องเข้าจุด Spark ตอนกดขุด (Camera Assist)", Default = true })
-SparkCamToggle:OnChanged(function() Config.AutoSparkCameraAssist = SparkCamToggle.Value end)
+local AutoSparkToggle = Tabs.ResourceESP:AddToggle("AutoSparkToggle", { Title = "หันกล้องตีจุด Spark ของแร่อัตโนมัติ (Auto-Hit Ore Spark)", Default = false })
+AutoSparkToggle:OnChanged(function(val) Config.AutoSparkEnabled = ReadToggleVal(val, AutoSparkToggle) end)
 
 local T_Stone = Tabs.ResourceESP:AddToggle("T_Stone", { Title = "ESP แร่หิน (Stone Ore)", Default = false })
-T_Stone:OnChanged(function() Config.ESP_StoneOre = T_Stone.Value end)
+T_Stone:OnChanged(function(val) Config.ESP_StoneOre = ReadToggleVal(val, T_Stone) end)
 
 local T_Metal = Tabs.ResourceESP:AddToggle("T_Metal", { Title = "ESP แร่เหล็ก (Metal Ore)", Default = false })
-T_Metal:OnChanged(function() Config.ESP_MetalOre = T_Metal.Value end)
+T_Metal:OnChanged(function(val) Config.ESP_MetalOre = ReadToggleVal(val, T_Metal) end)
 
 local T_Sulfur = Tabs.ResourceESP:AddToggle("T_Sulfur", { Title = "ESP แร่กำมะถัน (Sulfur Ore)", Default = false })
-T_Sulfur:OnChanged(function() Config.ESP_SulfurOre = T_Sulfur.Value end)
+T_Sulfur:OnChanged(function(val) Config.ESP_SulfurOre = ReadToggleVal(val, T_Sulfur) end)
 
 local T_Cloth = Tabs.ResourceESP:AddToggle("T_Cloth", { Title = "ESP ผ้า & ของป่า (Cloth / Hemp / Mushrooms)", Default = false })
-T_Cloth:OnChanged(function() Config.ESP_ClothAndFood = T_Cloth.Value end)
+T_Cloth:OnChanged(function(val) Config.ESP_ClothAndFood = ReadToggleVal(val, T_Cloth) end)
 
 -- ------------------------------------------------------------------------------
 -- TAB 4: ESP กล่องเก็บของ & ของตกพื้น
 -- ------------------------------------------------------------------------------
 local T_Storage = Tabs.LootESP:AddToggle("T_Storage", { Title = "ESP กล่องเก็บของ & เตาเผา (Crate / Furnace / Stash)", Default = false })
-T_Storage:OnChanged(function() Config.ESP_Storage = T_Storage.Value end)
+T_Storage:OnChanged(function(val) Config.ESP_Storage = ReadToggleVal(val, T_Storage) end)
 
 local T_UnlockedOnly = Tabs.LootESP:AddToggle("T_UnlockedOnly", { Title = "กรองเฉพาะกล่องที่ไม่ได้ล็อก (Unlocked Only)", Default = false })
-T_UnlockedOnly:OnChanged(function() Config.ESP_OnlyUnlockedStorage = T_UnlockedOnly.Value end)
+T_UnlockedOnly:OnChanged(function(val) Config.ESP_OnlyUnlockedStorage = ReadToggleVal(val, T_UnlockedOnly) end)
 
 local T_Dropped = Tabs.LootESP:AddToggle("T_Dropped", { Title = "ESP ของและอาวุธที่ดรอปบนพื้น (Dropped Items)", Default = false })
-T_Dropped:OnChanged(function() Config.ESP_DroppedItems = T_Dropped.Value end)
+T_Dropped:OnChanged(function(val) Config.ESP_DroppedItems = ReadToggleVal(val, T_Dropped) end)
 
 local T_WorldCrates = Tabs.LootESP:AddToggle("T_WorldCrates", { Title = "ESP กล่องฟาร์มตามแมพ & แอร์ดรอป (Military / Locked Crate / Barrel)", Default = false })
-T_WorldCrates:OnChanged(function() Config.ESP_WorldCrates = T_WorldCrates.Value end)
+T_WorldCrates:OnChanged(function(val) Config.ESP_WorldCrates = ReadToggleVal(val, T_WorldCrates) end)
 
 Tabs.LootESP:AddSlider("WorldDistSlider", {
     Title = "ระยะมองเห็นแร่และสิ่งของสูงสุด (Studs)",
@@ -2069,7 +1963,7 @@ Tabs.LootESP:AddSlider("WorldDistSlider", {
 })
 
 -- ==============================================================================
--- [ปุ่มลอยสำหรับมือถือ: เปิด/ปิด UI และสลับ Silent Aim ด่วน]
+-- [ปุ่มลอยสำหรับมือถือ & ฟังก์ชัน Cleanup]
 -- ==============================================================================
 local MobileToggleBtn = Instance.new("TextButton")
 MobileToggleBtn.Name = "MobileToggleUI"
@@ -2088,29 +1982,42 @@ local BtnCorner = Instance.new("UICorner")
 BtnCorner.CornerRadius = UDim.new(0, 12)
 BtnCorner.Parent = MobileToggleBtn
 
-MobileToggleBtn.MouseButton1Click:Connect(function()
+AddConnection(MobileToggleBtn.MouseButton1Click:Connect(function()
     Window:Minimize()
-end)
+end))
 
-local QuickSilentBtn = Instance.new("TextButton")
-QuickSilentBtn.Name = "QuickSilentBtn"
-QuickSilentBtn.Size = UDim2.fromOffset(52, 52)
-QuickSilentBtn.Position = UDim2.new(0, 16, 0.55, -26)
-QuickSilentBtn.BackgroundColor3 = Color3.fromRGB(45, 30, 65)
-QuickSilentBtn.TextColor3 = Color3.fromRGB(220, 180, 255)
-QuickSilentBtn.Font = Enum.Font.GothamBold
-QuickSilentBtn.TextSize = 11
-QuickSilentBtn.Text = "SILENT"
-QuickSilentBtn.Draggable = true
-QuickSilentBtn.Active = true
-QuickSilentBtn.Parent = OverlayGui
+local QuickHitboxBtn = Instance.new("TextButton")
+QuickHitboxBtn.Name = "QuickHitboxBtn"
+QuickHitboxBtn.Size = UDim2.fromOffset(52, 52)
+QuickHitboxBtn.Position = UDim2.new(0, 16, 0.55, -26)
+QuickHitboxBtn.BackgroundColor3 = Color3.fromRGB(45, 30, 65)
+QuickHitboxBtn.TextColor3 = Color3.fromRGB(220, 180, 255)
+QuickHitboxBtn.Font = Enum.Font.GothamBold
+QuickHitboxBtn.TextSize = 11
+QuickHitboxBtn.Text = "HITBOX"
+QuickHitboxBtn.Draggable = true
+QuickHitboxBtn.Active = true
+QuickHitboxBtn.Parent = OverlayGui
 
-local SilentBtnCorner = Instance.new("UICorner")
-SilentBtnCorner.CornerRadius = UDim.new(0, 12)
-SilentBtnCorner.Parent = QuickSilentBtn
+local HitboxBtnCorner = Instance.new("UICorner")
+HitboxBtnCorner.CornerRadius = UDim.new(0, 12)
+HitboxBtnCorner.Parent = QuickHitboxBtn
 
-QuickSilentBtn.MouseButton1Click:Connect(function()
-    SilentAimToggle:SetValue(not Config.SilentAimEnabled)
-end)
+AddConnection(QuickHitboxBtn.MouseButton1Click:Connect(function()
+    HitboxToggle:SetValue(not Config.HitboxExpanderEnabled)
+end))
+
+GlobalEnv.RustHubCleanup = function()
+    pcall(function() RunService:UnbindFromRenderStep("RustV10AimbotEngine") end)
+    for _, conn in ipairs(ActiveConnections) do
+        pcall(function() conn:Disconnect() end)
+    end
+    ActiveConnections = {}
+    pcall(RestoreAllHitboxes)
+    pcall(function() ApplyFullbrightState(false) end)
+    if OverlayGui and OverlayGui.Parent then
+        pcall(function() OverlayGui:Destroy() end)
+    end
+end
 
 Window:SelectTab(1)
