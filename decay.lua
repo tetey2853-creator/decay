@@ -1,6 +1,6 @@
 -- ==============================================================================
--- Rust Roblox Script V8
--- Features: Hitbox Expander, Silent Aim, True Ballistics Aimbot, Keybinds & Full ESP
+-- Rust Roblox Script V9
+-- Features: Fullbright & SetAmbient Blocker, Hitbox Expander, Silent Aim, Pro Aimbot, Full ESP
 -- Supports: PC & Mobile | Anti-Cheat Bypass Included
 -- ==============================================================================
 
@@ -8,6 +8,7 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
+local Lighting = game:GetService("Lighting")
 local CoreGui = game:GetService("CoreGui")
 
 local LocalPlayer = Players.LocalPlayer
@@ -32,11 +33,11 @@ local Config = {
     -- 3. ระบบ Hitbox Expander (ขยายหัว/ตัวศัตรู)
     HitboxExpanderEnabled = false,
     HitboxTargetPart = "Head", -- "Head", "Torso", "HumanoidRootPart"
-    HitboxSize = 6.5, -- ขนาดความกว้างxยาวxสูง (Studs)
-    HitboxTransparency = 0.65, -- ความโปร่งใสของกรอบหัวที่ขยาย
-    HitboxExpandBots = true, -- ขยายหัวบอทนักวิทยาศาสตร์ด้วย
+    HitboxSize = 6.5,
+    HitboxTransparency = 0.65,
+    HitboxExpandBots = true,
 
-    -- 4. การเลือกจุดเล็ง & การคำนวณดักทางวิ่ง (Shared Target Settings)
+    -- 4. การเลือกจุดเล็ง & การคำนวณดักทางวิ่ง
     TargetPartMode = "Head", -- "Head", "Torso", "ClosestPart"
     AirborneBodyAim = true,
     UsePrediction = true,
@@ -60,13 +61,18 @@ local Config = {
     NoRecoilEnabled = false,
     RecoilScale = 0,
 
-    -- 7. ระบบตีแร่โดนจุด Spark อัตโนมัติ (Auto-Hit Spark)
+    -- 7. ระบบ Fullbright & ตัดหมอก (TimeService.SetAmbient Blocker)
+    FullbrightEnabled = false,
+    FullbrightLevel = 2.5,
+    RemoveFogAndShadows = true,
+
+    -- 8. ระบบตีแร่โดนจุด Spark อัตโนมัติ (Auto-Hit Spark)
     AutoSparkEnabled = false,
     AutoSparkCameraAssist = true,
     ShowSparkESP = true,
     SparkRange = 10,
 
-    -- 8. ระบบ ESP แยกหมวดหมู่
+    -- 9. ระบบ ESP แยกหมวดหมู่
     ESP_Players = false,
     ESP_Scientists = false,
     ESP_Sleepers = false,
@@ -92,7 +98,132 @@ local CurrentTargetName = "None"
 local CachedScientists = {}
 
 -- ==============================================================================
--- [1] LOAD GAME MODULES & NO RECOIL HOOK
+-- [1] FULLBRIGHT & SETAMBIENT BLOCKER (บล็อก ReplicatedStorage.TimeService.SetAmbient)
+-- ==============================================================================
+local SetAmbientRemote = nil
+pcall(function()
+    local timeService = ReplicatedStorage:WaitForChild("TimeService", 5)
+    if timeService then
+        SetAmbientRemote = timeService:WaitForChild("SetAmbient", 5)
+    end
+end)
+
+local OriginalLighting = {
+    Ambient = Lighting.Ambient,
+    OutdoorAmbient = Lighting.OutdoorAmbient,
+    Brightness = Lighting.Brightness,
+    ClockTime = Lighting.ClockTime,
+    FogEnd = Lighting.FogEnd,
+    FogStart = Lighting.FogStart,
+    GlobalShadows = Lighting.GlobalShadows,
+}
+
+local OriginalAtmosphere = {}
+
+local function SaveAtmosphereState()
+    for _, child in ipairs(Lighting:GetChildren()) do
+        if child:IsA("Atmosphere") and not OriginalAtmosphere[child] then
+            OriginalAtmosphere[child] = {
+                Density = child.Density,
+                Haze = child.Haze,
+                Glare = child.Glare,
+            }
+        end
+    end
+end
+SaveAtmosphereState()
+
+local function SetTimeServiceConnections(enableConnections)
+    if not SetAmbientRemote or not getconnections then return end
+    pcall(function()
+        for _, conn in ipairs(getconnections(SetAmbientRemote.OnClientEvent)) do
+            if enableConnections then
+                if conn.Enable then conn:Enable() end
+            else
+                if conn.Disable then conn:Disable() end
+            end
+        end
+    end)
+end
+
+local function ApplyFullbrightState(enabled)
+    if enabled then
+        SetTimeServiceConnections(false)
+        Lighting.Ambient = Color3.fromRGB(210, 210, 210)
+        Lighting.OutdoorAmbient = Color3.fromRGB(210, 210, 210)
+        Lighting.Brightness = Config.FullbrightLevel
+        Lighting.ClockTime = 14
+
+        if Config.RemoveFogAndShadows then
+            Lighting.FogEnd = 100000
+            Lighting.FogStart = 100000
+            Lighting.GlobalShadows = false
+            SaveAtmosphereState()
+            for atmo, _ in pairs(OriginalAtmosphere) do
+                if atmo and atmo.Parent then
+                    atmo.Density = 0
+                    atmo.Haze = 0
+                    atmo.Glare = 0
+                end
+            end
+        end
+    else
+        SetTimeServiceConnections(true)
+        Lighting.Ambient = OriginalLighting.Ambient
+        Lighting.OutdoorAmbient = OriginalLighting.OutdoorAmbient
+        Lighting.Brightness = OriginalLighting.Brightness
+        Lighting.ClockTime = OriginalLighting.ClockTime
+        Lighting.FogEnd = OriginalLighting.FogEnd
+        Lighting.FogStart = OriginalLighting.FogStart
+        Lighting.GlobalShadows = OriginalLighting.GlobalShadows
+
+        for atmo, data in pairs(OriginalAtmosphere) do
+            if atmo and atmo.Parent then
+                atmo.Density = data.Density
+                atmo.Haze = data.Haze
+                atmo.Glare = data.Glare
+            end
+        end
+    end
+end
+
+-- ถ้าเปิดรับอีเวนต์ SetAmbient ในขณะที่ไม่มี getconnections ให้เขียนทับกลับเป็นสว่างทันที
+if SetAmbientRemote then
+    SetAmbientRemote.OnClientEvent:Connect(function()
+        if Config.FullbrightEnabled then
+            task.defer(function()
+                ApplyFullbrightState(true)
+            end)
+        end
+    end)
+end
+
+-- คอยรักษาค่าความสว่างและตัดหมอกตลอดเวลาที่เปิด Fullbright
+RunService.Heartbeat:Connect(function()
+    if Config.FullbrightEnabled then
+        Lighting.Ambient = Color3.fromRGB(210, 210, 210)
+        Lighting.OutdoorAmbient = Color3.fromRGB(210, 210, 210)
+        Lighting.Brightness = Config.FullbrightLevel
+        Lighting.ClockTime = 14
+        if Config.RemoveFogAndShadows then
+            Lighting.FogEnd = 100000
+            Lighting.FogStart = 100000
+            Lighting.GlobalShadows = false
+            for _, child in ipairs(Lighting:GetChildren()) do
+                if child:IsA("Atmosphere") then
+                    if not OriginalAtmosphere[child] then
+                        OriginalAtmosphere[child] = { Density = child.Density, Haze = child.Haze, Glare = child.Glare }
+                    end
+                    child.Density = 0
+                    child.Haze = 0
+                end
+            end
+        end
+    end
+end)
+
+-- ==============================================================================
+-- [2] LOAD GAME MODULES & NO RECOIL HOOK
 -- ==============================================================================
 local GameItemData = nil
 local GameAmmoTypes = nil
@@ -194,7 +325,7 @@ local function GetCurrentWeaponBallistics()
 end
 
 -- ==============================================================================
--- [2] TEAM CHECK & HITBOX EXPANDER ENGINE (ขยายหัวศัตรูอย่างปลอดภัย)
+-- [3] TEAM CHECK & HITBOX EXPANDER ENGINE
 -- ==============================================================================
 local function IsTeammate(player)
     if not Config.TeamCheck then return false end
@@ -221,7 +352,7 @@ local function IsTeammate(player)
     return false
 end
 
-local OriginalHitboxData = {} -- [BasePart] = { Size, Transparency, CanCollide, Massless }
+local OriginalHitboxData = {}
 
 local function RestorePartHitbox(part)
     local orig = OriginalHitboxData[part]
@@ -272,7 +403,6 @@ local function ApplyHitboxToCharacter(character, shouldExpand)
     local targetPart = GetExpandablePart(character)
     if not targetPart or not targetPart:IsA("BasePart") then return end
 
-    -- คืนค่าชิ้นส่วนอื่นหากผู้เล่นสลับโหมดจาก Head ไป Torso
     for _, partName in ipairs({ "Head", "Torso", "UpperTorso", "HumanoidRootPart" }) do
         local p = character:FindFirstChild(partName)
         if p and p ~= targetPart and OriginalHitboxData[p] then
@@ -294,10 +424,9 @@ local function ApplyHitboxToCharacter(character, shouldExpand)
     targetPart.Transparency = Config.HitboxTransparency
     targetPart.CanCollide = false
     targetPart.Massless = true
-    targetPart.CanQuery = true -- สำคัญมาก: เพื่อให้ Raycast ของปืนยิงโดนกรอบที่ขยาย
+    targetPart.CanQuery = true
 end
 
--- ลูปอัปเดต Hitbox Expander
 task.spawn(function()
     while true do
         if Config.HitboxExpanderEnabled then
@@ -325,7 +454,7 @@ task.spawn(function()
 end)
 
 -- ==============================================================================
--- [3] REAL-TIME VELOCITY TRACKER & BALLISTICS PREDICTION
+-- [4] REAL-TIME VELOCITY TRACKER & BALLISTICS PREDICTION
 -- ==============================================================================
 local VelocityTracker = {}
 
@@ -400,7 +529,7 @@ local function CalculatePredictedAimPosition(targetPart, targetModel)
 end
 
 -- ==============================================================================
--- [4] ANTI-CHEAT BYPASS + SILENT AIM ENGINE (Raycast & Ballistics Redirect)
+-- [5] ANTI-CHEAT BYPASS + SILENT AIM ENGINE
 -- ==============================================================================
 local AntiCheatRemote = nil
 local GunRemotes = {}
@@ -431,7 +560,6 @@ local function ShouldSilentAimRedirect()
     return true
 end
 
--- ดักจับโมดูล GunSystem.Ballistics
 pcall(function()
     local ballisticsMod = ReplicatedStorage:WaitForChild("GunSystem", 5)
         and ReplicatedStorage.GunSystem:WaitForChild("Ballistics", 5)
@@ -519,8 +647,8 @@ local function HookRaycastModule(modInstance)
     pcall(function()
         if not modInstance or not modInstance:IsA("ModuleScript") then return end
         local RayMod = require(modInstance)
-        if type(RayMod) ~= "table" or RayMod._V8Hooked then return end
-        RayMod._V8Hooked = true
+        if type(RayMod) ~= "table" or RayMod._V9Hooked then return end
+        RayMod._V9Hooked = true
 
         if type(RayMod.Raycast) == "function" then
             local oldRaycast = RayMod.Raycast
@@ -580,7 +708,6 @@ if hookmetamethod then
         local method = getnamecallmethod()
 
         if not checkcaller() then
-            -- บล็อก AntiCheat Remote และป้องกันการส่งขนาดพาร์ทผิดปกติ
             if method == "FireServer" or method == "InvokeServer" then
                 if (AntiCheatRemote and self == AntiCheatRemote) or (self.Name == "Auto" and self.Parent and self.Parent.Name == "RemoteEvents") then
                     return nil
@@ -628,7 +755,7 @@ if hookmetamethod then
 end
 
 -- ==============================================================================
--- [5] SOLID-HIT WALLCHECK & SMART BONE SELECTOR
+-- [6] SOLID-HIT WALLCHECK & SMART BONE SELECTOR
 -- ==============================================================================
 local function IsTargetVisible(targetPart, targetModel)
     if not Config.WallCheck then return true end
@@ -710,7 +837,7 @@ local function GetSmartAimPart(character)
 end
 
 -- ==============================================================================
--- [6] UI OVERLAY (STATUS HUD, FOV CIRCLE, TARGET LINE & ESP)
+-- [7] UI OVERLAY (STATUS HUD, FOV CIRCLE, TARGET LINE & ESP)
 -- ==============================================================================
 local SafeGuiParent = (gethui and gethui()) or CoreGui
 local OldOverlay = SafeGuiParent:FindFirstChild("RustSafeOverlay")
@@ -725,7 +852,7 @@ OverlayGui.Parent = SafeGuiParent
 
 local StatusHUD = Instance.new("TextLabel")
 StatusHUD.Name = "StatusHUD"
-StatusHUD.Size = UDim2.fromOffset(540, 28)
+StatusHUD.Size = UDim2.fromOffset(560, 28)
 StatusHUD.AnchorPoint = Vector2.new(0.5, 0)
 StatusHUD.Position = UDim2.new(0.5, 0, 0, 42)
 StatusHUD.BackgroundColor3 = Color3.fromRGB(20, 20, 25)
@@ -804,7 +931,7 @@ SparkMarker.Visible = false
 SparkMarker.Parent = OverlayGui
 
 -- ==============================================================================
--- [7] AIMBOT & SILENT AIM TARGETING ENGINE
+-- [8] AIMBOT & SILENT AIM TARGETING ENGINE
 -- ==============================================================================
 local function FindBestTargetInFOV()
     local screenCenter = Camera.ViewportSize / 2
@@ -894,10 +1021,11 @@ end
 pcall(function() RunService:UnbindFromRenderStep("RustV6AimbotEngine") end)
 pcall(function() RunService:UnbindFromRenderStep("RustV7AimbotEngine") end)
 pcall(function() RunService:UnbindFromRenderStep("RustV8AimbotEngine") end)
+pcall(function() RunService:UnbindFromRenderStep("RustV9AimbotEngine") end)
 
 local LastTriggerShot = 0
 
-RunService:BindToRenderStep("RustV8AimbotEngine", Enum.RenderPriority.Last.Value + 1, function()
+RunService:BindToRenderStep("RustV9AimbotEngine", Enum.RenderPriority.Last.Value + 1, function()
     Camera = workspace.CurrentCamera
     if not Camera then return end
 
@@ -1051,7 +1179,7 @@ RunService:BindToRenderStep("RustV8AimbotEngine", Enum.RenderPriority.Last.Value
 end)
 
 -- ==============================================================================
--- [8] HELPER FUNCTIONS FOR ESP & BACKGROUND SCANNER
+-- [9] HELPER FUNCTIONS FOR ESP & BACKGROUND SCANNER
 -- ==============================================================================
 local UserIdNameCache = {}
 
@@ -1458,7 +1586,7 @@ task.spawn(function()
 end)
 
 -- ==============================================================================
--- [9] ESP RENDERER
+-- [10] ESP RENDERER
 -- ==============================================================================
 local ESPPool = {}
 
@@ -1589,15 +1717,15 @@ RunService.RenderStepped:Connect(function()
 end)
 
 -- ==============================================================================
--- [10] FLUENT UI SETUP, KEYBINDS & MOBILE QUICK TOGGLE BUTTONS
+-- [11] FLUENT UI SETUP, KEYBINDS & MOBILE QUICK TOGGLE BUTTONS
 -- ==============================================================================
 local Fluent = loadstring(game:HttpGet("https://github.com/dawid-scripts/Fluent/releases/latest/download/main.lua"))()
 
 local Window = Fluent:CreateWindow({
-    Title = "Rust Survival Hub V8",
-    SubTitle = "Hitbox Expander + Silent Aim + Pro Aimbot + Full ESP",
+    Title = "Rust Survival Hub V9",
+    SubTitle = "Fullbright + Hitbox + Silent Aim + Pro Aimbot + ESP",
     TabWidth = 155,
-    Size = UDim2.fromOffset(620, 490),
+    Size = UDim2.fromOffset(620, 495),
     Acrylic = false,
     Theme = "Dark",
     MinimizeKey = Enum.KeyCode.RightControl
@@ -1605,7 +1733,7 @@ local Window = Fluent:CreateWindow({
 
 local Tabs = {
     Combat = Window:AddTab({ Title = "Aimbot & Hitbox", Icon = "crosshair" }),
-    PlayerBaseESP = Window:AddTab({ Title = "ESP คน / บอท / บ้าน", Icon = "users" }),
+    PlayerBaseESP = Window:AddTab({ Title = "ESP คน & แสงแมพ", Icon = "users" }),
     ResourceESP = Window:AddTab({ Title = "ESP แร่ & ตี Spark", Icon = "pickaxe" }),
     LootESP = Window:AddTab({ Title = "ESP ของตก & กล่อง", Icon = "box" }),
 }
@@ -1641,7 +1769,6 @@ end)
 
 Tabs.Combat:AddSlider("HitboxSizeSlider", {
     Title = "ขนาดหัวศัตรู (Hitbox Size Studs)",
-    Description = "ค่าแนะนำ 5 - 9 Studs (ยิงเฉียดหัวก็โดนเต็มๆ)",
     Default = 6.5,
     Min = 2.0,
     Max = 15.0,
@@ -1843,8 +1970,32 @@ local TeamCheckToggle = Tabs.Combat:AddToggle("TeamCheckToggle", { Title = "ข�
 TeamCheckToggle:OnChanged(function() Config.TeamCheck = TeamCheckToggle.Value end)
 
 -- ------------------------------------------------------------------------------
--- TAB 2: ESP ผู้เล่น, บอทนักวิทยาศาสตร์ & เจ้าของบ้าน
+-- TAB 2: FULLBRIGHT & ESP ผู้เล่น / บอท / เจ้าของบ้าน
 -- ------------------------------------------------------------------------------
+local FullbrightToggle = Tabs.PlayerBaseESP:AddToggle("FullbrightToggle", {
+    Title = "เปิดใช้งาน Fullbright & ตัดหมอก (บล็อก TimeService.SetAmbient)",
+    Description = "ปรับแมพให้สว่างเหมือนตอนกลางวันตลอดเวลาและตัดหมอกทั้งหมด",
+    Default = false
+})
+FullbrightToggle:OnChanged(function()
+    Config.FullbrightEnabled = FullbrightToggle.Value
+    ApplyFullbrightState(Config.FullbrightEnabled)
+end)
+
+Tabs.PlayerBaseESP:AddSlider("FullbrightLevelSlider", {
+    Title = "ระดับความสว่างของแมพ (Brightness Level)",
+    Default = 2.5,
+    Min = 1.0,
+    Max = 5.0,
+    Rounding = 1,
+    Callback = function(val)
+        Config.FullbrightLevel = val
+        if Config.FullbrightEnabled then
+            Lighting.Brightness = val
+        end
+    end
+})
+
 local T_Players = Tabs.PlayerBaseESP:AddToggle("T_Players", { Title = "ESP ผู้เล่นออนไลน์ (ชื่อ + เลือด + ปืนที่ถือ)", Default = false })
 T_Players:OnChanged(function() Config.ESP_Players = T_Players.Value end)
 
