@@ -1,6 +1,7 @@
 -- ==============================================================================
--- Rust Roblox Script V10 (Stable Edition)
--- Fixed: 100% Gun Damage & Ammo, Door Interaction, FOV Toggle, Smooth Predictive Aimbot & Hitbox Expander
+-- Rust Roblox Script V11 (Ultimate Stable Edition)
+-- Features: Fast Predictive Aimbot (Head/Torso), Bug-Free Hitbox Expander,
+--           No Recoil, Fullbright (SetAmbient Blocker), Auto Ore Spark & Full ESP
 -- ==============================================================================
 
 local Players = game:GetService("Players")
@@ -14,7 +15,7 @@ local LocalPlayer = Players.LocalPlayer
 local Camera = workspace.CurrentCamera
 
 -- ==============================================================================
--- [0] AUTO CLEANUP OLD SCRIPT INSTANCES (ล้างสคริปต์เก่าที่รันค้างไว้ทั้งหมด)
+-- [0] CLEANUP OLD INSTANCE & LIFECYCLE FLAG
 -- ==============================================================================
 local GlobalEnv = (getgenv and getgenv()) or _G
 
@@ -22,13 +23,13 @@ if GlobalEnv.RustHubCleanup then
     pcall(GlobalEnv.RustHubCleanup)
 end
 
--- ลบ BindToRenderStep ของเวอร์ชันเก่าทั้งหมดเผื่อค้างอยู่
 for _, bindName in ipairs({
     "RustV6AimbotEngine",
     "RustV7AimbotEngine",
     "RustV8AimbotEngine",
     "RustV9AimbotEngine",
-    "RustV10AimbotEngine"
+    "RustV10AimbotEngine",
+    "RustV11AimbotEngine"
 }) do
     pcall(function() RunService:UnbindFromRenderStep(bindName) end)
 end
@@ -41,25 +42,27 @@ for _, parentGui in ipairs({ SafeGuiParent, CoreGui, LocalPlayer:FindFirstChild(
     end
 end
 
+local ScriptRunning = true
 local ActiveConnections = {}
 local function AddConnection(conn)
-    table.insert(ActiveConnections, conn)
+    if conn then
+        table.insert(ActiveConnections, conn)
+    end
     return conn
 end
 
 -- ==============================================================================
 -- [1] ANTI-CHEAT BYPASS (บล็อกเฉพาะ ReplicatedStorage.AntiCheat.RemoteEvents.Auto)
--- ไม่แตะต้องรีโมทปืนและ Raycast เพื่อให้ยิงดาเมจเข้า 100% และเปิดประตูได้ปกติ
 -- ==============================================================================
 local AntiCheatRemote = nil
 pcall(function()
-    AntiCheatRemote = ReplicatedStorage:WaitForChild("AntiCheat", 5)
-        and ReplicatedStorage.AntiCheat:WaitForChild("RemoteEvents", 5)
-        and ReplicatedStorage.AntiCheat.RemoteEvents:WaitForChild("Auto", 5)
+    local acFolder = ReplicatedStorage:WaitForChild("AntiCheat", 5)
+    local remFolder = acFolder and acFolder:WaitForChild("RemoteEvents", 5)
+    AntiCheatRemote = remFolder and remFolder:WaitForChild("Auto", 5)
 end)
 
-if hookmetamethod and not GlobalEnv._RustAC Bypassed then
-    GlobalEnv._RustACBypassed = true
+if hookmetamethod and not GlobalEnv._RustACBypassedV11 then
+    GlobalEnv._RustACBypassedV11 = true
     local oldNamecall
     oldNamecall = hookmetamethod(game, "__namecall", newcclosure(function(self, ...)
         local method = getnamecallmethod()
@@ -73,56 +76,57 @@ if hookmetamethod and not GlobalEnv._RustAC Bypassed then
 end
 
 -- ==============================================================================
--- [GLOBAL CONFIG (ตั้งค่าเริ่มต้นเป็น false ทั้งหมด ไม่ให้ค้างตอนรัน)]
+-- [2] GLOBAL CONFIG (ทุกฟังก์ชันเริ่มต้นเป็น false เปิด-ปิดได้ตามสั่ง 100%)
 -- ==============================================================================
 local Config = {
-    -- 1. ระบบ Aimbot ล็อคหัว + ดักทางคนวิ่ง
+    -- ระบบ Aimbot ล็อคหัว / ล็อคตัว + ดักทางคนวิ่ง
     AimlockEnabled = false,
-    AimActivationMode = "HoldClick", -- "HoldClick" (ล็อคตอนกดยิง/เล็ง), "Always" (ล็อคตลอดเวลา)
-    TargetPartMode = "Head", -- "Head", "Torso", "ClosestPart"
-    AirborneBodyAim = true, -- สลับเล็งลำตัวอัตโนมัติเมื่อศัตรูกระโดด
+    AimActivationMode = "Always", -- "Always" (ล็อคทันทีในวง FOV), "HoldClick" (ล็อคตอนกดคลิกยิง/ซูม)
+    TargetPartMode = "Head", -- "Head" (ล็อคหัว), "Torso" (ล็อคตัว), "ClosestPart" (ส่วนที่ใกล้เป้าสุด)
+    AirborneBodyAim = true, -- สลับล็อคลำตัวอัตโนมัติเวลาศัตรูกระโดด
     StickyAim = true, -- ล็อคเกาะเป้าหมายเดิมไม่สวิงมั่ว
-    AimSmoothness = 0.50, -- ความไวในการล็อคเป้า (0.10 - 0.95)
-    UsePrediction = true, -- คำนวณดักหน้าคนวิ่ง
-    PredictionMultiplier = 1.05, -- ตัวคูณระยะดักหน้า
-    BulletDropCompensation = true, -- ชดเชยกระสุนตก
-    BreakawayThreshold = 9.0, -- แรงสะบัดเมาส์เพื่อดึงเป้าออก
+    AimSmoothness = 0.55, -- ความไวในการดูดตามคนวิ่ง (0.10 - 0.95)
+    UsePrediction = true, -- คำนวณดักหน้าเวลาคนวิ่ง
+    PredictionMultiplier = 1.10, -- ตัวคูณระยะดักหน้าคนวิ่ง
+    BulletDropCompensation = true, -- ชดเชยกระสุนตกตามระยะทาง
+    BreakawayThreshold = 9.5, -- แรงสะบัดเมาส์เพื่อดึงเป้าหลุดล็อค
     MaxAimDistance = 900,
     FOVRadius = 150,
-    ShowFOV = false, -- ปิดไว้ตอนเริ่ม รันแล้วไม่ค้างบนจอ
+    ShowFOV = false,
     ShowTargetLine = false,
     ShowStatusHUD = false,
     LockScientists = true,
     WallCheck = false,
     TeamCheck = false,
 
-    -- 2. ระบบ Hitbox Expander (ขยายหัว/ตัวศัตรูให้ยิงโดนง่าย ดาเมจเข้า 100%)
+    -- ระบบขยายดาเมจ / ขยายฮิตบ็อกซ์ (Hitbox Expander)
     HitboxExpanderEnabled = false,
     HitboxTargetPart = "Head", -- "Head", "Torso", "HumanoidRootPart"
-    HitboxSize = 6.5, -- ขนาดหัวที่ขยาย (Studs)
+    HitboxSize = 7.0, -- ขนาดที่ขยาย (Studs)
     HitboxTransparency = 0.65,
     HitboxExpandBots = true,
 
-    -- 3. ปุ่มลัดคีย์บอร์ด (Keybinds)
+    -- ปุ่มลัดคีย์บอร์ด (Keybinds)
     Key_ToggleAimbot = Enum.KeyCode.X,
     Key_ToggleHitbox = Enum.KeyCode.Z,
-    Key_SwitchHitboxPart = Enum.KeyCode.V,
+    Key_SwitchPart = Enum.KeyCode.V,
+    Key_ToggleFullbright = Enum.KeyCode.B,
 
-    -- 4. ระบบลดแรงดีดปืน (No Recoil)
+    -- ระบบลดแรงดีดปืน (No Recoil)
     NoRecoilEnabled = false,
     RecoilScale = 0,
 
-    -- 5. ระบบ Fullbright & ตัดหมอก
+    -- ระบบความสว่างตอนกลางคืน & ตัดหมอก (Fullbright)
     FullbrightEnabled = false,
     FullbrightLevel = 2.5,
     RemoveFogAndShadows = true,
 
-    -- 6. ระบบตีแร่โดนจุด Spark อัตโนมัติ (Camera Assist)
+    -- ระบบตีแร่โดนจุด Spark อัตโนมัติ
     AutoSparkEnabled = false,
     ShowSparkESP = true,
     SparkRange = 10,
 
-    -- 7. ระบบ ESP แยกหมวดหมู่
+    -- ระบบ ESP แยกหมวดหมู่
     ESP_Players = false,
     ESP_Scientists = false,
     ESP_Sleepers = false,
@@ -148,14 +152,12 @@ local CurrentTargetName = "None"
 local CachedScientists = {}
 
 -- ==============================================================================
--- [2] FULLBRIGHT & SETAMBIENT BLOCKER (บล็อก ReplicatedStorage.TimeService.SetAmbient)
+-- [3] FULLBRIGHT & SETAMBIENT BLOCKER (บล็อก ReplicatedStorage.TimeService.SetAmbient)
 -- ==============================================================================
 local SetAmbientRemote = nil
 pcall(function()
-    local timeService = ReplicatedStorage:WaitForChild("TimeService", 5)
-    if timeService then
-        SetAmbientRemote = timeService:WaitForChild("SetAmbient", 5)
-    end
+    local ts = ReplicatedStorage:WaitForChild("TimeService", 5)
+    SetAmbientRemote = ts and ts:WaitForChild("SetAmbient", 5)
 end)
 
 local OriginalLighting = {
@@ -182,11 +184,11 @@ local function SaveAtmosphereState()
 end
 SaveAtmosphereState()
 
-local function SetTimeServiceConnections(enableConnections)
+local function SetTimeServiceConnections(enableConn)
     if not SetAmbientRemote or not getconnections then return end
     pcall(function()
         for _, conn in ipairs(getconnections(SetAmbientRemote.OnClientEvent)) do
-            if enableConnections then
+            if enableConn then
                 if conn.Enable then conn:Enable() end
             else
                 if conn.Disable then conn:Disable() end
@@ -202,7 +204,6 @@ local function ApplyFullbrightState(enabled)
         Lighting.OutdoorAmbient = Color3.fromRGB(210, 210, 210)
         Lighting.Brightness = Config.FullbrightLevel
         Lighting.ClockTime = 14
-
         if Config.RemoveFogAndShadows then
             Lighting.FogEnd = 100000
             Lighting.FogStart = 100000
@@ -225,7 +226,6 @@ local function ApplyFullbrightState(enabled)
         Lighting.FogEnd = OriginalLighting.FogEnd
         Lighting.FogStart = OriginalLighting.FogStart
         Lighting.GlobalShadows = OriginalLighting.GlobalShadows
-
         for atmo, data in pairs(OriginalAtmosphere) do
             if atmo and atmo.Parent then
                 atmo.Density = data.Density
@@ -268,7 +268,7 @@ AddConnection(RunService.Heartbeat:Connect(function()
 end))
 
 -- ==============================================================================
--- [3] LOAD GAME ITEM DATA & NO RECOIL HOOK
+-- [4] LOAD GAME ITEM DATA & NO RECOIL HOOK
 -- ==============================================================================
 local GameItemData = nil
 local GameAmmoTypes = nil
@@ -334,13 +334,16 @@ local function IsHoldingMiningTool()
     return false
 end
 
+-- เช็กสถานะเปิดกระเป๋าจาก InInventory และ InUI ตามลอจิกเกมจริง
 local function IsGameMenuOpen()
     local pGui = LocalPlayer:FindFirstChild("PlayerGui")
     local inv = pGui and pGui:FindFirstChild("Inventory")
     if inv then
-        if inv:FindFirstChild("InInventory") and inv.InInventory.Value == true then return true end
-        if inv:FindFirstChild("InUI") and inv.InUI.Value == true then return true end
-        if inv:FindFirstChild("Inventory") and inv.Inventory.Visible == true then return true end
+        local inInv = inv:FindFirstChild("InInventory")
+        local inUI = inv:FindFirstChild("InUI")
+        if (inInv and inInv.Value == true) or (inUI and inUI.Value == true) then
+            return true
+        end
     end
     return false
 end
@@ -389,7 +392,7 @@ local function GetCurrentWeaponBallistics()
 end
 
 -- ==============================================================================
--- [4] CHARACTER RESOLVER, TEAM CHECK & NON-BLOCKING HITBOX EXPANDER
+-- [5] CHARACTER RESOLVER, TEAM CHECK & BUG-FREE HITBOX EXPANDER
 -- ==============================================================================
 local function GetPlayerCharacter(player)
     if not player then return nil end
@@ -479,7 +482,6 @@ local function ApplyHitboxToCharacter(character, shouldExpand)
     local hp = GetCharacterHealth(character)
     local root = character:FindFirstChild("HumanoidRootPart") or character:FindFirstChild("Head")
 
-    -- เช็กไม่ให้ขยายหัวของคนที่นอนอยู่ (Sleeper) เพื่อไม่ให้บังเวลาเดินไปเก็บของหรือเปิดประตู
     local isLyingDown = root and (math.abs(root.CFrame.UpVector.Y) < 0.5)
     local isAlive = (hp > 0) and not isLyingDown
 
@@ -522,7 +524,7 @@ local function ApplyHitboxToCharacter(character, shouldExpand)
 end
 
 task.spawn(function()
-    while GlobalEnv.RustHubCleanup do
+    while ScriptRunning do
         if Config.HitboxExpanderEnabled then
             for _, player in ipairs(Players:GetPlayers()) do
                 if player ~= LocalPlayer then
@@ -550,7 +552,7 @@ task.spawn(function()
 end)
 
 -- ==============================================================================
--- [5] REAL-TIME VELOCITY TRACKER & BALLISTICS PREDICTION
+-- [6] REAL-TIME VELOCITY TRACKER & BALLISTICS PREDICTION
 -- ==============================================================================
 local VelocityTracker = {}
 
@@ -625,7 +627,7 @@ local function CalculatePredictedAimPosition(targetPart, targetModel)
 end
 
 -- ==============================================================================
--- [6] SOLID-HIT WALLCHECK, ORE SPARK FINDER & SMART BONE SELECTOR
+-- [7] SOLID-HIT WALLCHECK, ORE SPARK FINDER & SMART BONE SELECTOR
 -- ==============================================================================
 local function IsTargetVisible(targetPart, targetModel)
     if not Config.WallCheck then return true end
@@ -752,7 +754,7 @@ local function GetNearestOreSpark(maxDist)
 end
 
 -- ==============================================================================
--- [7] UI OVERLAY (FOV CIRCLE, TARGET LINE, STATUS HUD & ESP)
+-- [8] UI OVERLAY (FOV CIRCLE, TARGET LINE, STATUS HUD & ESP)
 -- ==============================================================================
 local OverlayGui = Instance.new("ScreenGui")
 OverlayGui.Name = "RustSafeOverlay"
@@ -763,7 +765,7 @@ OverlayGui.Parent = SafeGuiParent
 
 local StatusHUD = Instance.new("TextLabel")
 StatusHUD.Name = "StatusHUD"
-StatusHUD.Size = UDim2.fromOffset(560, 28)
+StatusHUD.Size = UDim2.fromOffset(580, 28)
 StatusHUD.AnchorPoint = Vector2.new(0.5, 0)
 StatusHUD.Position = UDim2.new(0.5, 0, 0, 42)
 StatusHUD.BackgroundColor3 = Color3.fromRGB(20, 20, 25)
@@ -789,7 +791,7 @@ local FOVCircleFrame = Instance.new("Frame")
 FOVCircleFrame.Name = "FOVCircle"
 FOVCircleFrame.AnchorPoint = Vector2.new(0.5, 0.5)
 FOVCircleFrame.BackgroundTransparency = 1
-FOVCircleFrame.Visible = false -- เริ่มต้นปิดไว้เสมอ
+FOVCircleFrame.Visible = false
 FOVCircleFrame.Parent = OverlayGui
 
 local FOVCorner = Instance.new("UICorner")
@@ -842,7 +844,7 @@ SparkMarker.Visible = false
 SparkMarker.Parent = OverlayGui
 
 -- ==============================================================================
--- [8] DUAL-STAGE AIMBOT ENGINE (ล็อคหัวแม่นยำ 100% + ดักทางคนวิ่ง)
+-- [9] V6/V7 RESPONSIVE AIMBOT ENGINE (ล็อคหัว + ล็อคตัว + ดักทางคนวิ่ง)
 -- ==============================================================================
 local function FindBestTargetInFOV()
     local screenCenter = Camera.ViewportSize / 2
@@ -935,33 +937,34 @@ local function GetKeyNameSafe(keyItem)
     return tostring(keyItem or "None")
 end
 
-local function UpdateAimbotFrame()
+local function UpdateAimbotStep()
+    if not ScriptRunning then return end
     Camera = workspace.CurrentCamera
     if not Camera then return end
 
     local screenCenter = Camera.ViewportSize / 2
 
-    -- 1. อัปเดตวงกลม FOV ตามสถานะจริง
     FOVCircleFrame.Visible = (Config.ShowFOV == true)
     if Config.ShowFOV then
         FOVCircleFrame.Position = UDim2.fromOffset(screenCenter.X, screenCenter.Y)
         FOVCircleFrame.Size = UDim2.fromOffset(Config.FOVRadius * 2, Config.FOVRadius * 2)
     end
 
-    -- 2. อัปเดตแถบ Status HUD อย่างปลอดภัย
     StatusHUD.Visible = (Config.ShowStatusHUD == true)
     if Config.ShowStatusHUD then
         local aimTxt = Config.AimlockEnabled and "ON" or "OFF"
         local hbTxt = Config.HitboxExpanderEnabled and ("ON (" .. tostring(Config.HitboxSize) .. ")") or "OFF"
+        local fbTxt = Config.FullbrightEnabled and "ON" or "OFF"
         StatusHUD.Text = string.format(
-            "[%s] Aimbot: %s | [%s] ขยายหัว: %s | เล็ง: %s | เป้า: %s",
+            "[%s] Aimbot: %s | [%s] ขยายหัว: %s | [%s] เล็ง: %s | [%s] แสง: %s | เป้า: %s",
             GetKeyNameSafe(Config.Key_ToggleAimbot), aimTxt,
             GetKeyNameSafe(Config.Key_ToggleHitbox), hbTxt,
-            tostring(Config.TargetPartMode), tostring(CurrentTargetName)
+            GetKeyNameSafe(Config.Key_SwitchPart), tostring(Config.TargetPartMode),
+            GetKeyNameSafe(Config.Key_ToggleFullbright), fbTxt,
+            tostring(CurrentTargetName)
         )
     end
 
-    -- 3. ระบบช่วยตีแร่โดนจุด Spark
     if Config.AutoSparkEnabled then
         local sparkPart = GetNearestOreSpark(Config.SparkRange)
         if sparkPart then
@@ -984,7 +987,6 @@ local function UpdateAimbotFrame()
         SparkMarker.Visible = false
     end
 
-    -- 4. ระบบค้นหาและล็อคหัวศัตรู
     if not Config.AimlockEnabled then
         CurrentLockedPart = nil
         CurrentLockedModel = nil
@@ -1004,7 +1006,7 @@ local function UpdateAimbotFrame()
             local dist2D = (Vector2.new(screenPos.X, screenPos.Y) - screenCenter).Magnitude
             local worldDist = (CurrentLockedPart.Position - Camera.CFrame.Position).Magnitude
 
-            if hp <= 0 or not onScreen or dist2D > (Config.FOVRadius * 1.2) or worldDist > Config.MaxAimDistance or not IsTargetVisible(CurrentLockedPart, CurrentLockedModel) then
+            if hp <= 0 or not onScreen or dist2D > (Config.FOVRadius * 1.25) or worldDist > Config.MaxAimDistance or not IsTargetVisible(CurrentLockedPart, CurrentLockedModel) then
                 CurrentLockedPart = nil
                 CurrentLockedModel = nil
                 CurrentPredictedPos = nil
@@ -1051,9 +1053,10 @@ local function UpdateAimbotFrame()
             local deltaMag = mouseDelta.Magnitude
             local effectiveSmooth = Config.AimSmoothness
 
+            -- เร่งความไวในการเกาะเป้าอัตโนมัติเมื่อเป้าหมายกำลังวิ่งสปรินต์
             local targetVel = GetTargetVelocity(CurrentLockedModel, CurrentLockedModel:FindFirstChild("HumanoidRootPart") or CurrentLockedPart)
             if targetVel.Magnitude > 8 then
-                effectiveSmooth = math.clamp(effectiveSmooth * 1.35, 0.15, 0.95)
+                effectiveSmooth = math.clamp(effectiveSmooth * 1.40, 0.20, 0.96)
             end
 
             local isBreakingAway = false
@@ -1068,10 +1071,9 @@ local function UpdateAimbotFrame()
                 local goalCFrame = CFrame.lookAt(Camera.CFrame.Position, CurrentPredictedPos)
                 Camera.CFrame = Camera.CFrame:Lerp(goalCFrame, effectiveSmooth)
 
-                -- ส่งค่าขยับเมาส์แบบจำนวนเต็มให้สคริปต์กล้องของเกมอัปเดตมุมตามด้วย
                 if mousemoverel and predOnScreen then
-                    local dx = math.round((predScreen.X - screenCenter.X) * (effectiveSmooth * 0.50))
-                    local dy = math.round((predScreen.Y - screenCenter.Y) * (effectiveSmooth * 0.50))
+                    local dx = math.round((predScreen.X - screenCenter.X) * (effectiveSmooth * 0.55))
+                    local dy = math.round((predScreen.Y - screenCenter.Y) * (effectiveSmooth * 0.55))
                     if math.abs(dx) >= 1 or math.abs(dy) >= 1 then
                         pcall(mousemoverel, dx, dy)
                     end
@@ -1086,20 +1088,18 @@ local function UpdateAimbotFrame()
     end
 end
 
--- ผูกทั้ง BindToRenderStep และ RenderStepped เพื่อให้ทำงานชนะสคริปต์กล้องของเกมทุกกรณี
-RunService:BindToRenderStep("RustV10AimbotEngine", Enum.RenderPriority.Last.Value + 10, UpdateAimbotFrame)
+RunService:BindToRenderStep("RustV11AimbotEngine", Enum.RenderPriority.Last.Value + 10, UpdateAimbotStep)
 AddConnection(RunService.RenderStepped:Connect(function()
-    if Config.AimlockEnabled and CurrentPredictedPos and IsAimKeyActive() and not IsHoldingMiningTool() then
+    if ScriptRunning and Config.AimlockEnabled and CurrentPredictedPos and IsAimKeyActive() and not IsHoldingMiningTool() then
         Camera = workspace.CurrentCamera
         if Camera then
-            local goalCFrame = CFrame.lookAt(Camera.CFrame.Position, CurrentPredictedPos)
-            Camera.CFrame = Camera.CFrame:Lerp(goalCFrame, Config.AimSmoothness)
+            Camera.CFrame = Camera.CFrame:Lerp(CFrame.lookAt(Camera.CFrame.Position, CurrentPredictedPos), Config.AimSmoothness)
         end
     end
 end))
 
 -- ==============================================================================
--- [9] HELPER FUNCTIONS FOR ESP & BACKGROUND SCANNER
+-- [10] HELPER FUNCTIONS FOR ESP & BACKGROUND SCANNER
 -- ==============================================================================
 local UserIdNameCache = {}
 
@@ -1274,7 +1274,7 @@ local ClothAndFoodKeywords = {
 }
 
 task.spawn(function()
-    while GlobalEnv.RustHubCleanup do
+    while ScriptRunning do
         local newTracked = {}
         local newScientists = {}
 
@@ -1506,7 +1506,7 @@ task.spawn(function()
 end)
 
 -- ==============================================================================
--- [10] ESP RENDERER
+-- [11] ESP RENDERER
 -- ==============================================================================
 local ESPPool = {}
 
@@ -1553,6 +1553,7 @@ local function CleanupESP(activeKeys)
 end
 
 AddConnection(RunService.RenderStepped:Connect(function()
+    if not ScriptRunning then return end
     local activeKeys = {}
     local myChar = GetLocalCharacter()
     local myRoot = myChar and myChar:FindFirstChild("HumanoidRootPart")
@@ -1637,13 +1638,13 @@ AddConnection(RunService.RenderStepped:Connect(function()
 end))
 
 -- ==============================================================================
--- [11] FLUENT UI SETUP & RELIABLE KEYBIND HANDLER
+-- [12] FLUENT UI SETUP & KEYBIND HANDLER
 -- ==============================================================================
 local Fluent = loadstring(game:HttpGet("https://github.com/dawid-scripts/Fluent/releases/latest/download/main.lua"))()
 
 local Window = Fluent:CreateWindow({
-    Title = "Rust Survival Hub V10 (Stable)",
-    SubTitle = "Aimbot + Hitbox Expander + Fullbright + Full ESP",
+    Title = "Rust Survival Hub V11",
+    SubTitle = "Stable Aimbot + Hitbox Expander + Fullbright + ESP",
     TabWidth = 155,
     Size = UDim2.fromOffset(620, 490),
     Acrylic = false,
@@ -1668,8 +1669,8 @@ end
 -- TAB 1: PRO AIMBOT & SMART HITBOX EXPANDER
 -- ------------------------------------------------------------------------------
 local AimToggle = Tabs.Combat:AddToggle("AimToggle", {
-    Title = "เปิดใช้งาน Aimbot ล็อคหัว (ปุ่มลัด: X)",
-    Description = "ดูดเป้าเข้าหัวศัตรูพร้อมคำนวณดักทางวิ่งอัตโนมัติ",
+    Title = "เปิดใช้งาน Aimbot ล็อคเป้า (ปุ่มลัด: X)",
+    Description = "ล็อคหัว/ตัวพร้อมคำนวณดักทางคนวิ่งอัตโนมัติ",
     Default = false
 })
 AimToggle:OnChanged(function(val)
@@ -1677,8 +1678,8 @@ AimToggle:OnChanged(function(val)
 end)
 
 local HitboxToggle = Tabs.Combat:AddToggle("HitboxToggle", {
-    Title = "เปิดใช้งานขยายล็อคหัวศัตรู (Hitbox Expander | ปุ่มลัด: Z)",
-    Description = "ขยายขนาดหัวศัตรูให้ยิงโดนง่าย ดาเมจเข้าและกระสุนลดปกติ 100%",
+    Title = "เปิดใช้งานขยายฮิตบ็อกซ์ศัตรู (Hitbox Expander | ปุ่มลัด: Z)",
+    Description = "ขยายหัว/ตัวศัตรูให้ยิงโดนแทบจะตลอด ดาเมจเข้า 100% ไม่บั๊กประตู",
     Default = false
 })
 HitboxToggle:OnChanged(function(val)
@@ -1689,17 +1690,17 @@ HitboxToggle:OnChanged(function(val)
 end)
 
 Tabs.Combat:AddSlider("HitboxSizeSlider", {
-    Title = "ขนาดขยายล็อคหัวศัตรู (Hitbox Size Studs)",
-    Description = "แนะนำ 5.5 - 8.5 Studs (ยิงเฉียดหัวก็โดนเต็มๆ)",
-    Default = 6.5,
+    Title = "ขนาดขยายหัว/ตัวศัตรู (Hitbox Size Studs)",
+    Description = "แนะนำ 6.0 - 9.0 Studs",
+    Default = 7.0,
     Min = 2.0,
-    Max = 14.0,
+    Max = 15.0,
     Rounding = 1,
     Callback = function(val) Config.HitboxSize = val end
 })
 
 Tabs.Combat:AddSlider("HitboxTransSlider", {
-    Title = "ความโปร่งใสของกรอบหัวที่ขยาย (Hitbox Transparency)",
+    Title = "ความโปร่งใสของฮิตบ็อกซ์ที่ขยาย (Hitbox Transparency)",
     Default = 0.65,
     Min = 0.10,
     Max = 0.95,
@@ -1708,25 +1709,25 @@ Tabs.Combat:AddSlider("HitboxTransSlider", {
 })
 
 local HitboxPartDropdown = Tabs.Combat:AddDropdown("HitboxPartDropdown", {
-    Title = "ชิ้นส่วนที่ต้องการขยายขนาด (Expand Part)",
+    Title = "ส่วนที่ต้องการขยายขนาด (Expand Part)",
     Values = { "Head", "Torso", "HumanoidRootPart" },
     Default = "Head",
 })
 HitboxPartDropdown:OnChanged(function(val) Config.HitboxTargetPart = val end)
 
-local AimActDropdown = Tabs.Combat:AddDropdown("AimActDropdown", {
-    Title = "โหมดการทำงานของ Aimbot",
-    Values = { "HoldClick", "Always" },
-    Default = "HoldClick",
-})
-AimActDropdown:OnChanged(function(val) Config.AimActivationMode = val end)
-
 local TargetPartDropdown = Tabs.Combat:AddDropdown("TargetPartDropdown", {
-    Title = "จุดเล็งของ Aimbot (ปุ่มลัดสลับ หัว/ตัว: V)",
+    Title = "ส่วนที่ต้องการให้ Aimbot ล็อค (ปุ่มลัดสลับ หัว/ตัว: V)",
     Values = { "Head", "Torso", "ClosestPart" },
     Default = "Head",
 })
 TargetPartDropdown:OnChanged(function(val) Config.TargetPartMode = val end)
+
+local AimActDropdown = Tabs.Combat:AddDropdown("AimActDropdown", {
+    Title = "จังหวะการล็อคของ Aimbot",
+    Values = { "Always", "HoldClick" },
+    Default = "Always",
+})
+AimActDropdown:OnChanged(function(val) Config.AimActivationMode = val end)
 
 local FOVToggle = Tabs.Combat:AddToggle("FOVToggle", {
     Title = "แสดงวงกลมระยะล็อค (FOV Circle)",
@@ -1750,7 +1751,7 @@ LineToggle:OnChanged(function(val)
 end)
 
 local HUDToggle = Tabs.Combat:AddToggle("HUDToggle", {
-    Title = "แสดงแถบสถานะด้านบนจอ (Status HUD)",
+    Title = "แสดงแถบสถานะปุ่มลัดด้านบนจอ (Status HUD)",
     Default = false
 })
 HUDToggle:OnChanged(function(val)
@@ -1768,9 +1769,9 @@ Tabs.Combat:AddSlider("FOVRadiusSlider", {
 })
 
 Tabs.Combat:AddSlider("SmoothnessSlider", {
-    Title = "ความไวในการล็อคหัว (Aim Speed)",
-    Description = "0.50 = เกาะติดคนวิ่งไวและนุ่มนวล | 0.85 = ล็อคติดหัวทันที",
-    Default = 0.50,
+    Title = "ความไวในการล็อคตามคนวิ่ง (Aim Speed)",
+    Description = "0.55 = ตามคนวิ่งทันและสมูท | 0.85 = ล็อคติดทันที",
+    Default = 0.55,
     Min = 0.10,
     Max = 0.95,
     Rounding = 2,
@@ -1778,14 +1779,14 @@ Tabs.Combat:AddSlider("SmoothnessSlider", {
 })
 
 local PredictToggle = Tabs.Combat:AddToggle("PredictToggle", {
-    Title = "คำนวณดักทางคนวิ่งตามความเร็วกระสุนจริง (Velocity Prediction)",
+    Title = "คำนวณดักหน้าเวลาคนวิ่งหนี (Velocity Prediction)",
     Default = true
 })
 PredictToggle:OnChanged(function(val) Config.UsePrediction = ReadToggleVal(val, PredictToggle) end)
 
 Tabs.Combat:AddSlider("PredictionMultSlider", {
     Title = "ตัวคูณระยะดักหน้าคนวิ่ง (Prediction Multiplier)",
-    Default = 1.05,
+    Default = 1.10,
     Min = 0.50,
     Max = 2.00,
     Rounding = 2,
@@ -1799,7 +1800,7 @@ local DropCompToggle = Tabs.Combat:AddToggle("DropCompToggle", {
 DropCompToggle:OnChanged(function(val) Config.BulletDropCompensation = ReadToggleVal(val, DropCompToggle) end)
 
 local AirborneBodyToggle = Tabs.Combat:AddToggle("AirborneBodyToggle", {
-    Title = "สลับเล็งลำตัวอัตโนมัติเมื่อศัตรูกระโดด (Airborne Body-Switch)",
+    Title = "สลับล็อคลำตัวอัตโนมัติเมื่อศัตรูกระโดด (Airborne Body-Switch)",
     Default = true
 })
 AirborneBodyToggle:OnChanged(function(val) Config.AirborneBodyAim = ReadToggleVal(val, AirborneBodyToggle) end)
@@ -1841,39 +1842,12 @@ local TeamCheckToggle = Tabs.Combat:AddToggle("TeamCheckToggle", {
 })
 TeamCheckToggle:OnChanged(function(val) Config.TeamCheck = ReadToggleVal(val, TeamCheckToggle) end)
 
--- ระบบจัดการปุ่มลัดคีย์บอร์ดโดยตรงผ่าน UserInputService (เสถียร 100% ไม่พึ่งพา Keybind ของ UI)
-AddConnection(UserInputService.InputBegan:Connect(function(input, gameProcessed)
-    if gameProcessed then return end
-    if input.KeyCode == Config.Key_ToggleAimbot then
-        AimToggle:SetValue(not Config.AimlockEnabled)
-        Fluent:Notify({
-            Title = "Aimbot (ปุ่ม X)",
-            Content = Config.AimlockEnabled and "เปิด Aimbot ล็อคหัวแล้ว" or "ปิด Aimbot แล้ว",
-            Duration = 1.5
-        })
-    elseif input.KeyCode == Config.Key_ToggleHitbox then
-        HitboxToggle:SetValue(not Config.HitboxExpanderEnabled)
-        Fluent:Notify({
-            Title = "Hitbox Expander (ปุ่ม Z)",
-            Content = Config.HitboxExpanderEnabled and "เปิดขยายล็อคหัวแล้ว" or "ปิดขยายล็อคหัวแล้ว (คืนค่าปกติ)",
-            Duration = 1.5
-        })
-    elseif input.KeyCode == Config.Key_SwitchHitboxPart then
-        local nextMode = (Config.TargetPartMode == "Head") and "Torso" or "Head"
-        TargetPartDropdown:SetValue(nextMode)
-        Fluent:Notify({
-            Title = "จุดเล็ง (ปุ่ม V)",
-            Content = "สลับจุดเล็งเป็น: " .. nextMode,
-            Duration = 1.5
-        })
-    end
-end))
-
 -- ------------------------------------------------------------------------------
 -- TAB 2: FULLBRIGHT & ESP ผู้เล่น / บอท / เจ้าของบ้าน
 -- ------------------------------------------------------------------------------
 local FullbrightToggle = Tabs.PlayerBaseESP:AddToggle("FullbrightToggle", {
-    Title = "เปิดใช้งาน Fullbright & ตัดหมอก (บล็อก TimeService.SetAmbient)",
+    Title = "เปิดใช้งาน Fullbright & ตัดหมอก (ปุ่มลัด: B)",
+    Description = "สว่างเหมือนกลางวันตลอดเวลาและบล็อกรีโมท TimeService.SetAmbient",
     Default = false
 })
 FullbrightToggle:OnChanged(function(val)
@@ -1963,6 +1937,44 @@ Tabs.LootESP:AddSlider("WorldDistSlider", {
 })
 
 -- ==============================================================================
+-- [ระบบปุ่มลัดคีย์บอร์ด X / Z / V / B]
+-- ==============================================================================
+AddConnection(UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    if gameProcessed or not ScriptRunning then return end
+    if input.KeyCode == Config.Key_ToggleAimbot then
+        AimToggle:SetValue(not Config.AimlockEnabled)
+        Fluent:Notify({
+            Title = "Aimbot (ปุ่ม X)",
+            Content = Config.AimlockEnabled and "เปิด Aimbot ล็อคเป้าแล้ว" or "ปิด Aimbot แล้ว",
+            Duration = 1.5
+        })
+    elseif input.KeyCode == Config.Key_ToggleHitbox then
+        HitboxToggle:SetValue(not Config.HitboxExpanderEnabled)
+        Fluent:Notify({
+            Title = "Hitbox Expander (ปุ่ม Z)",
+            Content = Config.HitboxExpanderEnabled and "เปิดขยายฮิตบ็อกซ์แล้ว" or "ปิดขยายฮิตบ็อกซ์แล้ว",
+            Duration = 1.5
+        })
+    elseif input.KeyCode == Config.Key_SwitchPart then
+        local nextMode = (Config.TargetPartMode == "Head") and "Torso" or "Head"
+        TargetPartDropdown:SetValue(nextMode)
+        HitboxPartDropdown:SetValue(nextMode)
+        Fluent:Notify({
+            Title = "สลับจุดล็อค (ปุ่ม V)",
+            Content = "เปลี่ยนเป็นล็อคและขยาย: " .. nextMode,
+            Duration = 1.5
+        })
+    elseif input.KeyCode == Config.Key_ToggleFullbright then
+        FullbrightToggle:SetValue(not Config.FullbrightEnabled)
+        Fluent:Notify({
+            Title = "Fullbright (ปุ่ม B)",
+            Content = Config.FullbrightEnabled and "เปิดแสงสว่าง + ตัดหมอกแล้ว" or "คืนค่าแสงแมพปกติแล้ว",
+            Duration = 1.5
+        })
+    end
+end))
+
+-- ==============================================================================
 -- [ปุ่มลอยสำหรับมือถือ & ฟังก์ชัน Cleanup]
 -- ==============================================================================
 local MobileToggleBtn = Instance.new("TextButton")
@@ -1986,29 +1998,32 @@ AddConnection(MobileToggleBtn.MouseButton1Click:Connect(function()
     Window:Minimize()
 end))
 
-local QuickHitboxBtn = Instance.new("TextButton")
-QuickHitboxBtn.Name = "QuickHitboxBtn"
-QuickHitboxBtn.Size = UDim2.fromOffset(52, 52)
-QuickHitboxBtn.Position = UDim2.new(0, 16, 0.55, -26)
-QuickHitboxBtn.BackgroundColor3 = Color3.fromRGB(45, 30, 65)
-QuickHitboxBtn.TextColor3 = Color3.fromRGB(220, 180, 255)
-QuickHitboxBtn.Font = Enum.Font.GothamBold
-QuickHitboxBtn.TextSize = 11
-QuickHitboxBtn.Text = "HITBOX"
-QuickHitboxBtn.Draggable = true
-QuickHitboxBtn.Active = true
-QuickHitboxBtn.Parent = OverlayGui
+local QuickLockBtn = Instance.new("TextButton")
+QuickLockBtn.Name = "QuickLockBtn"
+QuickLockBtn.Size = UDim2.fromOffset(52, 52)
+QuickLockBtn.Position = UDim2.new(0, 16, 0.55, -26)
+QuickLockBtn.BackgroundColor3 = Color3.fromRGB(45, 30, 65)
+QuickLockBtn.TextColor3 = Color3.fromRGB(220, 180, 255)
+QuickLockBtn.Font = Enum.Font.GothamBold
+QuickLockBtn.TextSize = 11
+QuickLockBtn.Text = "LOCK"
+QuickLockBtn.Draggable = true
+QuickLockBtn.Active = true
+QuickLockBtn.Parent = OverlayGui
 
-local HitboxBtnCorner = Instance.new("UICorner")
-HitboxBtnCorner.CornerRadius = UDim.new(0, 12)
-HitboxBtnCorner.Parent = QuickHitboxBtn
+local LockBtnCorner = Instance.new("UICorner")
+LockBtnCorner.CornerRadius = UDim.new(0, 12)
+LockBtnCorner.Parent = QuickLockBtn
 
-AddConnection(QuickHitboxBtn.MouseButton1Click:Connect(function()
-    HitboxToggle:SetValue(not Config.HitboxExpanderEnabled)
+AddConnection(QuickLockBtn.MouseButton1Click:Connect(function()
+    local nextState = not Config.AimlockEnabled
+    AimToggle:SetValue(nextState)
+    HitboxToggle:SetValue(nextState)
 end))
 
 GlobalEnv.RustHubCleanup = function()
-    pcall(function() RunService:UnbindFromRenderStep("RustV10AimbotEngine") end)
+    ScriptRunning = false
+    pcall(function() RunService:UnbindFromRenderStep("RustV11AimbotEngine") end)
     for _, conn in ipairs(ActiveConnections) do
         pcall(function() conn:Disconnect() end)
     end
