@@ -1,5 +1,6 @@
 -- ==============================================================================
--- Rust Roblox Script V7 (Silent Aim + Pro Predictive Aimbot + Keybinds + Full ESP)
+-- Rust Roblox Script V8
+-- Features: Hitbox Expander, Silent Aim, True Ballistics Aimbot, Keybinds & Full ESP
 -- Supports: PC & Mobile | Anti-Cheat Bypass Included
 -- ==============================================================================
 
@@ -20,21 +21,28 @@ local Config = {
     AimlockEnabled = false,
     AimActivationMode = "Always", -- "Always", "HoldClick"
     AimSmoothness = 0.45,
-    StickyAim = true, -- ล็อคเกาะเป้าหมายเดิมไม่สวิงมั่วเวลาคนวิ่งตัดกัน
+    StickyAim = true,
     BreakawayThreshold = 8.5,
 
     -- 2. ระบบ Silent Aim (กระสุนเลี้ยวเข้าหัว)
     SilentAimEnabled = false,
-    SilentAimHitChance = 100, -- โอกาสกระสุนเลี้ยวเข้าเป้า (1 - 100%)
-    AutoTriggerbot = false, -- ยิงอัตโนมัติเมื่อล็อคเป้าสำเร็จ
+    SilentAimHitChance = 100,
+    AutoTriggerbot = false,
 
-    -- 3. การเลือกจุดเล็ง & การคำนวณดักทางวิ่ง (Shared Target Settings)
+    -- 3. ระบบ Hitbox Expander (ขยายหัว/ตัวศัตรู)
+    HitboxExpanderEnabled = false,
+    HitboxTargetPart = "Head", -- "Head", "Torso", "HumanoidRootPart"
+    HitboxSize = 6.5, -- ขนาดความกว้างxยาวxสูง (Studs)
+    HitboxTransparency = 0.65, -- ความโปร่งใสของกรอบหัวที่ขยาย
+    HitboxExpandBots = true, -- ขยายหัวบอทนักวิทยาศาสตร์ด้วย
+
+    -- 4. การเลือกจุดเล็ง & การคำนวณดักทางวิ่ง (Shared Target Settings)
     TargetPartMode = "Head", -- "Head", "Torso", "ClosestPart"
-    AirborneBodyAim = true, -- สลับเล็งลำตัวอัตโนมัติเมื่อศัตรูกระโดดลอยกลางอากาศ
+    AirborneBodyAim = true,
     UsePrediction = true,
     PredictionMultiplier = 1.05,
     BulletDropCompensation = true,
-    MaxAimDistance = 900, -- ระยะล็อคสูงสุด (Studs)
+    MaxAimDistance = 900,
     FOVRadius = 160,
     ShowFOV = true,
     ShowTargetLine = true,
@@ -43,22 +51,22 @@ local Config = {
     WallCheck = false,
     TeamCheck = false,
 
-    -- 4. ปุ่มลัดคีย์บอร์ด (Keybinds)
+    -- 5. ปุ่มลัดคีย์บอร์ด (Keybinds)
     Key_ToggleAimbot = Enum.KeyCode.X,
     Key_ToggleSilentAim = Enum.KeyCode.Z,
     Key_SwitchHitbox = Enum.KeyCode.V,
 
-    -- 5. ระบบลดแรงดีดปืน (No Recoil)
+    -- 6. ระบบลดแรงดีดปืน (No Recoil)
     NoRecoilEnabled = false,
     RecoilScale = 0,
 
-    -- 6. ระบบตีแร่โดนจุด Spark อัตโนมัติ (Auto-Hit Spark)
+    -- 7. ระบบตีแร่โดนจุด Spark อัตโนมัติ (Auto-Hit Spark)
     AutoSparkEnabled = false,
     AutoSparkCameraAssist = true,
     ShowSparkESP = true,
     SparkRange = 10,
 
-    -- 7. ระบบ ESP แยกหมวดหมู่
+    -- 8. ระบบ ESP แยกหมวดหมู่
     ESP_Players = false,
     ESP_Scientists = false,
     ESP_Sleepers = false,
@@ -77,11 +85,11 @@ local Config = {
     WorldRenderDistance = 600,
 }
 
--- ตัวแปรสถานะเป้าหมายที่กำลังล็อคอยู่ปัจจุบัน
 local CurrentLockedModel = nil
 local CurrentLockedPart = nil
 local CurrentPredictedPos = nil
 local CurrentTargetName = "None"
+local CachedScientists = {}
 
 -- ==============================================================================
 -- [1] LOAD GAME MODULES & NO RECOIL HOOK
@@ -186,7 +194,138 @@ local function GetCurrentWeaponBallistics()
 end
 
 -- ==============================================================================
--- [2] REAL-TIME VELOCITY TRACKER & BALLISTICS PREDICTION
+-- [2] TEAM CHECK & HITBOX EXPANDER ENGINE (ขยายหัวศัตรูอย่างปลอดภัย)
+-- ==============================================================================
+local function IsTeammate(player)
+    if not Config.TeamCheck then return false end
+    if player == LocalPlayer then return true end
+
+    local playerGui = LocalPlayer:FindFirstChild("PlayerGui")
+    local teamUI = playerGui and playerGui:FindFirstChild("TeamUI")
+    local teamFrame = teamUI and teamUI:FindFirstChild("Team")
+
+    if teamFrame then
+        for _, child in ipairs(teamFrame:GetChildren()) do
+            if child.Name == player.Name or child.Name == player.DisplayName or child.Name == tostring(player.UserId) then
+                return true
+            end
+            for _, desc in ipairs(child:GetDescendants()) do
+                if desc:IsA("TextLabel") and desc.Text ~= "" then
+                    if string.find(desc.Text, player.Name, 1, true) or string.find(desc.Text, player.DisplayName, 1, true) then
+                        return true
+                    end
+                end
+            end
+        end
+    end
+    return false
+end
+
+local OriginalHitboxData = {} -- [BasePart] = { Size, Transparency, CanCollide, Massless }
+
+local function RestorePartHitbox(part)
+    local orig = OriginalHitboxData[part]
+    if orig then
+        if part and part.Parent then
+            pcall(function()
+                part.Size = orig.Size
+                part.Transparency = orig.Transparency
+                part.CanCollide = orig.CanCollide
+                part.Massless = orig.Massless
+            end)
+        end
+        OriginalHitboxData[part] = nil
+    end
+end
+
+local function RestoreAllHitboxes()
+    for part, _ in pairs(OriginalHitboxData) do
+        RestorePartHitbox(part)
+    end
+end
+
+local function GetExpandablePart(character)
+    if not character then return nil end
+    if Config.HitboxTargetPart == "Torso" then
+        return character:FindFirstChild("Torso") or character:FindFirstChild("UpperTorso") or character:FindFirstChild("HumanoidRootPart")
+    elseif Config.HitboxTargetPart == "HumanoidRootPart" then
+        return character:FindFirstChild("HumanoidRootPart")
+    end
+    return character:FindFirstChild("Head")
+end
+
+local function ApplyHitboxToCharacter(character, shouldExpand)
+    if not character then return end
+    local hum = character:FindFirstChildOfClass("Humanoid")
+    local isAlive = hum and hum.Health > 0
+
+    if not shouldExpand or not isAlive then
+        for _, partName in ipairs({ "Head", "Torso", "UpperTorso", "HumanoidRootPart" }) do
+            local p = character:FindFirstChild(partName)
+            if p and OriginalHitboxData[p] then
+                RestorePartHitbox(p)
+            end
+        end
+        return
+    end
+
+    local targetPart = GetExpandablePart(character)
+    if not targetPart or not targetPart:IsA("BasePart") then return end
+
+    -- คืนค่าชิ้นส่วนอื่นหากผู้เล่นสลับโหมดจาก Head ไป Torso
+    for _, partName in ipairs({ "Head", "Torso", "UpperTorso", "HumanoidRootPart" }) do
+        local p = character:FindFirstChild(partName)
+        if p and p ~= targetPart and OriginalHitboxData[p] then
+            RestorePartHitbox(p)
+        end
+    end
+
+    if not OriginalHitboxData[targetPart] then
+        OriginalHitboxData[targetPart] = {
+            Size = targetPart.Size,
+            Transparency = targetPart.Transparency,
+            CanCollide = targetPart.CanCollide,
+            Massless = targetPart.Massless
+        }
+    end
+
+    local desiredSize = Vector3.new(Config.HitboxSize, Config.HitboxSize, Config.HitboxSize)
+    targetPart.Size = desiredSize
+    targetPart.Transparency = Config.HitboxTransparency
+    targetPart.CanCollide = false
+    targetPart.Massless = true
+    targetPart.CanQuery = true -- สำคัญมาก: เพื่อให้ Raycast ของปืนยิงโดนกรอบที่ขยาย
+end
+
+-- ลูปอัปเดต Hitbox Expander
+task.spawn(function()
+    while true do
+        if Config.HitboxExpanderEnabled then
+            for _, player in ipairs(Players:GetPlayers()) do
+                if player ~= LocalPlayer and player.Character then
+                    local expandThis = not IsTeammate(player)
+                    ApplyHitboxToCharacter(player.Character, expandThis)
+                end
+            end
+
+            if Config.HitboxExpandBots then
+                for _, botModel in ipairs(CachedScientists) do
+                    if botModel and botModel.Parent then
+                        ApplyHitboxToCharacter(botModel, true)
+                    end
+                end
+            end
+        else
+            if next(OriginalHitboxData) ~= nil then
+                RestoreAllHitboxes()
+            end
+        end
+        task.wait(0.15)
+    end
+end)
+
+-- ==============================================================================
+-- [3] REAL-TIME VELOCITY TRACKER & BALLISTICS PREDICTION
 -- ==============================================================================
 local VelocityTracker = {}
 
@@ -261,7 +400,7 @@ local function CalculatePredictedAimPosition(targetPart, targetModel)
 end
 
 -- ==============================================================================
--- [3] ANTI-CHEAT BYPASS + SILENT AIM ENGINE (Raycast & Ballistics Redirect)
+-- [4] ANTI-CHEAT BYPASS + SILENT AIM ENGINE (Raycast & Ballistics Redirect)
 -- ==============================================================================
 local AntiCheatRemote = nil
 local GunRemotes = {}
@@ -292,7 +431,7 @@ local function ShouldSilentAimRedirect()
     return true
 end
 
--- 3.1 ดักจับโมดูล GunSystem.Ballistics เพื่อให้กระสุนพุ่งเข้าหัวเป้าหมายโดยตรง
+-- ดักจับโมดูล GunSystem.Ballistics
 pcall(function()
     local ballisticsMod = ReplicatedStorage:WaitForChild("GunSystem", 5)
         and ReplicatedStorage.GunSystem:WaitForChild("Ballistics", 5)
@@ -311,7 +450,6 @@ pcall(function()
                                     if not originVec and (v - Camera.CFrame.Position).Magnitude < 25 then
                                         originVec = v
                                     elseif originVec then
-                                        -- แทนที่ทิศทางกระสุน (Direction / Velocity Vector) ให้เลี้ยวไปหา CurrentPredictedPos
                                         local mag = v.Magnitude
                                         if mag > 0.5 then
                                             args[i] = (CurrentPredictedPos - originVec).Unit * mag
@@ -332,7 +470,6 @@ pcall(function()
     end
 end)
 
--- 3.2 ดักจับโมดูล CenterScreenRaycast (ทั้งของอาวุธและของระบบขุดแร่ Spark)
 local function GetActiveSparkPart(oreModel)
     if not oreModel or not oreModel.Parent then return nil end
     local sys = oreModel:FindFirstChild("System")
@@ -382,8 +519,8 @@ local function HookRaycastModule(modInstance)
     pcall(function()
         if not modInstance or not modInstance:IsA("ModuleScript") then return end
         local RayMod = require(modInstance)
-        if type(RayMod) ~= "table" or RayMod._V7Hooked then return end
-        RayMod._V7Hooked = true
+        if type(RayMod) ~= "table" or RayMod._V8Hooked then return end
+        RayMod._V8Hooked = true
 
         if type(RayMod.Raycast) == "function" then
             local oldRaycast = RayMod.Raycast
@@ -437,20 +574,18 @@ if ReplicatedStorage:FindFirstChild("Deployables") and ReplicatedStorage.Deploya
     HookRaycastModule(ReplicatedStorage.Deployables.Modules:FindFirstChild("CenterScreenRaycast"))
 end
 
--- 3.3 ดักจับ __namecall (บล็อก Anti-Cheat + บังคับเลี้ยว Raycast และรีโมทกระสุนของ Silent Aim)
 if hookmetamethod then
     local oldNamecall
     oldNamecall = hookmetamethod(game, "__namecall", newcclosure(function(self, ...)
         local method = getnamecallmethod()
 
         if not checkcaller() then
-            -- 1) บล็อกรีโมท Anti-Cheat Auto
+            -- บล็อก AntiCheat Remote และป้องกันการส่งขนาดพาร์ทผิดปกติ
             if method == "FireServer" or method == "InvokeServer" then
                 if (AntiCheatRemote and self == AntiCheatRemote) or (self.Name == "Auto" and self.Parent and self.Parent.Name == "RemoteEvents") then
                     return nil
                 end
 
-                -- 2) ดักรีโมทปืน (BulletFire / Shot / BowShoot) เพื่อปรับทิศทางกระสุนเข้าหัว
                 if GunRemotes[self] and ShouldSilentAimRedirect() then
                     local args = { ... }
                     local originPos = Camera.CFrame.Position
@@ -463,7 +598,6 @@ if hookmetamethod then
                                 if math.abs(mag - 1) < 0.05 then
                                     args[i] = (CurrentPredictedPos - originPos).Unit
                                 elseif mag > 30 and (arg - CurrentPredictedPos).Magnitude > 15 then
-                                    -- กรณีส่ง Velocity Vector ของกระสุน
                                     args[i] = (CurrentPredictedPos - originPos).Unit * mag
                                 end
                             end
@@ -478,7 +612,6 @@ if hookmetamethod then
                 end
             end
 
-            -- 3) ดัก workspace:Raycast ของระบบปืนเพื่อให้ลำแสงกระสุนเลี้ยวเข้าหัวเป้าหมายทันที
             if method == "Raycast" and self == workspace and ShouldSilentAimRedirect() then
                 local origin, direction, params = ...
                 if typeof(origin) == "Vector3" and typeof(direction) == "Vector3" then
@@ -495,33 +628,8 @@ if hookmetamethod then
 end
 
 -- ==============================================================================
--- [4] SOLID-HIT WALLCHECK, TEAM CHECK & SMART BONE SELECTOR
+-- [5] SOLID-HIT WALLCHECK & SMART BONE SELECTOR
 -- ==============================================================================
-local function IsTeammate(player)
-    if not Config.TeamCheck then return false end
-    if player == LocalPlayer then return true end
-
-    local playerGui = LocalPlayer:FindFirstChild("PlayerGui")
-    local teamUI = playerGui and playerGui:FindFirstChild("TeamUI")
-    local teamFrame = teamUI and teamUI:FindFirstChild("Team")
-
-    if teamFrame then
-        for _, child in ipairs(teamFrame:GetChildren()) do
-            if child.Name == player.Name or child.Name == player.DisplayName or child.Name == tostring(player.UserId) then
-                return true
-            end
-            for _, desc in ipairs(child:GetDescendants()) do
-                if desc:IsA("TextLabel") and desc.Text ~= "" then
-                    if string.find(desc.Text, player.Name, 1, true) or string.find(desc.Text, player.DisplayName, 1, true) then
-                        return true
-                    end
-                end
-            end
-        end
-    end
-    return false
-end
-
 local function IsTargetVisible(targetPart, targetModel)
     if not Config.WallCheck then return true end
     if not targetPart then return false end
@@ -561,7 +669,6 @@ local function IsTargetVisible(targetPart, targetModel)
     return true
 end
 
--- เลือกชิ้นส่วนเล็งอัจฉริยะ (รองรับสลับเล็งลำตัวเมื่อศัตรูกระโดด)
 local function GetSmartAimPart(character)
     if not character then return nil end
     local hum = character:FindFirstChildOfClass("Humanoid")
@@ -569,7 +676,6 @@ local function GetSmartAimPart(character)
     local head = character:FindFirstChild("Head")
     local torso = character:FindFirstChild("Torso") or character:FindFirstChild("UpperTorso") or root
 
-    -- หากเปิด AirborneBodyAim และศัตรูกำลังกระโดดลอยตัวกลางอากาศ ให้เล็งลำตัวเพื่อให้ยิงโดนชัวร์
     if Config.AirborneBodyAim and root then
         local velY = math.abs(root.AssemblyLinearVelocity.Y)
         local inAir = (hum and hum.FloorMaterial == Enum.Material.Air) or (velY > 6.5)
@@ -604,7 +710,7 @@ local function GetSmartAimPart(character)
 end
 
 -- ==============================================================================
--- [5] UI OVERLAY (STATUS HUD, FOV CIRCLE, TARGET LINE & ESP)
+-- [6] UI OVERLAY (STATUS HUD, FOV CIRCLE, TARGET LINE & ESP)
 -- ==============================================================================
 local SafeGuiParent = (gethui and gethui()) or CoreGui
 local OldOverlay = SafeGuiParent:FindFirstChild("RustSafeOverlay")
@@ -617,10 +723,9 @@ OverlayGui.ResetOnSpawn = false
 OverlayGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 OverlayGui.Parent = SafeGuiParent
 
--- แถบแสดงสถานะ Aimbot & Silent Aim ด้านบนหน้าจอ (HUD Banner)
 local StatusHUD = Instance.new("TextLabel")
 StatusHUD.Name = "StatusHUD"
-StatusHUD.Size = UDim2.fromOffset(480, 28)
+StatusHUD.Size = UDim2.fromOffset(540, 28)
 StatusHUD.AnchorPoint = Vector2.new(0.5, 0)
 StatusHUD.Position = UDim2.new(0.5, 0, 0, 42)
 StatusHUD.BackgroundColor3 = Color3.fromRGB(20, 20, 25)
@@ -699,10 +804,8 @@ SparkMarker.Visible = false
 SparkMarker.Parent = OverlayGui
 
 -- ==============================================================================
--- [6] AIMBOT & SILENT AIM TARGETING ENGINE
+-- [7] AIMBOT & SILENT AIM TARGETING ENGINE
 -- ==============================================================================
-local CachedScientists = {}
-
 local function FindBestTargetInFOV()
     local screenCenter = Camera.ViewportSize / 2
     local camPos = Camera.CFrame.Position
@@ -790,10 +893,11 @@ end
 
 pcall(function() RunService:UnbindFromRenderStep("RustV6AimbotEngine") end)
 pcall(function() RunService:UnbindFromRenderStep("RustV7AimbotEngine") end)
+pcall(function() RunService:UnbindFromRenderStep("RustV8AimbotEngine") end)
 
 local LastTriggerShot = 0
 
-RunService:BindToRenderStep("RustV7AimbotEngine", Enum.RenderPriority.Last.Value + 1, function()
+RunService:BindToRenderStep("RustV8AimbotEngine", Enum.RenderPriority.Last.Value + 1, function()
     Camera = workspace.CurrentCamera
     if not Camera then return end
 
@@ -802,20 +906,19 @@ RunService:BindToRenderStep("RustV7AimbotEngine", Enum.RenderPriority.Last.Value
     FOVCircleFrame.Size = UDim2.fromOffset(Config.FOVRadius * 2, Config.FOVRadius * 2)
     FOVCircleFrame.Visible = Config.ShowFOV
 
-    -- อัปเดตแถบ Status HUD ด้านบนจอ
     StatusHUD.Visible = Config.ShowStatusHUD
     if Config.ShowStatusHUD then
         local aimTxt = Config.AimlockEnabled and "ON" or "OFF"
         local silentTxt = Config.SilentAimEnabled and "ON" or "OFF"
+        local hbTxt = Config.HitboxExpanderEnabled and ("ON (" .. tostring(Config.HitboxSize) .. ")") or "OFF"
         StatusHUD.Text = string.format(
-            "[%s] Aimbot: %s | [%s] Silent Aim: %s | เล็ง: %s | เป้า: %s",
+            "[%s] Aimbot: %s | [%s] Silent: %s | Hitbox: %s | เล็ง: %s | เป้า: %s",
             Config.Key_ToggleAimbot.Name, aimTxt,
             Config.Key_ToggleSilentAim.Name, silentTxt,
-            Config.TargetPartMode, CurrentTargetName
+            hbTxt, Config.TargetPartMode, CurrentTargetName
         )
     end
 
-    -- 1. ระบบช่วยตีแร่โดนจุด Spark
     if Config.AutoSparkEnabled then
         local sparkPart = GetNearestOreSpark(Config.SparkRange)
         if sparkPart then
@@ -838,7 +941,6 @@ RunService:BindToRenderStep("RustV7AimbotEngine", Enum.RenderPriority.Last.Value
         SparkMarker.Visible = false
     end
 
-    -- 2. ระบบค้นหาและล็อคเป้าหมาย (ทำงานเมื่อเปิด Aimbot หรือเปิด Silent Aim อย่างใดอย่างหนึ่ง)
     if not Config.AimlockEnabled and not Config.SilentAimEnabled then
         CurrentLockedPart = nil
         CurrentLockedModel = nil
@@ -850,7 +952,6 @@ RunService:BindToRenderStep("RustV7AimbotEngine", Enum.RenderPriority.Last.Value
         return
     end
 
-    -- หากเปิด StickyAim ให้เกาะเป้าหมายเดิมไว้ตราบใดที่ยังไม่ตายและยังอยู่ในวง FOV
     if Config.StickyAim and CurrentLockedModel and CurrentLockedModel.Parent then
         local hum = CurrentLockedModel:FindFirstChildOfClass("Humanoid")
         CurrentLockedPart = GetSmartAimPart(CurrentLockedModel)
@@ -902,7 +1003,6 @@ RunService:BindToRenderStep("RustV7AimbotEngine", Enum.RenderPriority.Last.Value
             TargetLine.Visible = false
         end
 
-        -- หันกล้องตามเป้าหมายเมื่อเปิด AimlockEnabled
         if Config.AimlockEnabled and IsAimKeyActive() and not IsHoldingMiningTool() then
             local mouseDelta = UserInputService:GetMouseDelta()
             local deltaMag = mouseDelta.Magnitude
@@ -935,7 +1035,6 @@ RunService:BindToRenderStep("RustV7AimbotEngine", Enum.RenderPriority.Last.Value
             end
         end
 
-        -- ระบบ Triggerbot (ช่วยเหนี่ยวไกอัตโนมัติเมื่อเป้าอยู่ใกล้จุดดักหน้า)
         if Config.AutoTriggerbot and mouse1click and predOnScreen and not IsHoldingMiningTool() then
             local distFromCrosshair = (Vector2.new(predScreen.X, predScreen.Y) - screenCenter).Magnitude
             if (Config.SilentAimEnabled or distFromCrosshair <= 18) and (os.clock() - LastTriggerShot >= 0.12) then
@@ -952,7 +1051,7 @@ RunService:BindToRenderStep("RustV7AimbotEngine", Enum.RenderPriority.Last.Value
 end)
 
 -- ==============================================================================
--- [7] HELPER FUNCTIONS FOR ESP & BACKGROUND SCANNER
+-- [8] HELPER FUNCTIONS FOR ESP & BACKGROUND SCANNER
 -- ==============================================================================
 local UserIdNameCache = {}
 
@@ -1136,7 +1235,7 @@ task.spawn(function()
             or Config.ESP_StoneOre or Config.ESP_MetalOre or Config.ESP_SulfurOre
             or Config.ESP_ClothAndFood or Config.ESP_DroppedItems or Config.ESP_WorldCrates
 
-        if AnyWorldESP or Config.LockScientists then
+        if AnyWorldESP or Config.LockScientists or Config.HitboxExpandBots then
             local pbs = workspace:FindFirstChild("PlayerBuiltStructures")
             local deployables = pbs and pbs:FindFirstChild("Deployables")
             if deployables and AnyWorldESP then
@@ -1308,7 +1407,7 @@ task.spawn(function()
                 end
             end
 
-            if Config.ESP_Scientists or Config.LockScientists or Config.ESP_ClothAndFood or Config.ESP_WorldCrates then
+            if Config.ESP_Scientists or Config.LockScientists or Config.HitboxExpandBots or Config.ESP_ClothAndFood or Config.ESP_WorldCrates then
                 local monuments = workspace:FindFirstChild("Monuments")
                 if monuments then
                     for _, desc in ipairs(monuments:GetDescendants()) do
@@ -1359,7 +1458,7 @@ task.spawn(function()
 end)
 
 -- ==============================================================================
--- [8] ESP RENDERER
+-- [9] ESP RENDERER
 -- ==============================================================================
 local ESPPool = {}
 
@@ -1490,29 +1589,29 @@ RunService.RenderStepped:Connect(function()
 end)
 
 -- ==============================================================================
--- [9] FLUENT UI SETUP, KEYBINDS & MOBILE QUICK TOGGLE BUTTONS
+-- [10] FLUENT UI SETUP, KEYBINDS & MOBILE QUICK TOGGLE BUTTONS
 -- ==============================================================================
 local Fluent = loadstring(game:HttpGet("https://github.com/dawid-scripts/Fluent/releases/latest/download/main.lua"))()
 
 local Window = Fluent:CreateWindow({
-    Title = "Rust Survival Hub V7",
-    SubTitle = "Silent Aim + Pro Aimbot + Keybinds + Full ESP",
+    Title = "Rust Survival Hub V8",
+    SubTitle = "Hitbox Expander + Silent Aim + Pro Aimbot + Full ESP",
     TabWidth = 155,
-    Size = UDim2.fromOffset(610, 480),
+    Size = UDim2.fromOffset(620, 490),
     Acrylic = false,
     Theme = "Dark",
     MinimizeKey = Enum.KeyCode.RightControl
 })
 
 local Tabs = {
-    Combat = Window:AddTab({ Title = "Aimbot & Silent Aim", Icon = "crosshair" }),
+    Combat = Window:AddTab({ Title = "Aimbot & Hitbox", Icon = "crosshair" }),
     PlayerBaseESP = Window:AddTab({ Title = "ESP คน / บอท / บ้าน", Icon = "users" }),
     ResourceESP = Window:AddTab({ Title = "ESP แร่ & ตี Spark", Icon = "pickaxe" }),
     LootESP = Window:AddTab({ Title = "ESP ของตก & กล่อง", Icon = "box" }),
 }
 
 -- ------------------------------------------------------------------------------
--- TAB 1: PRO AIMBOT & SILENT AIM SUITE
+-- TAB 1: PRO AIMBOT, SILENT AIM & HITBOX EXPANDER
 -- ------------------------------------------------------------------------------
 local AimToggle = Tabs.Combat:AddToggle("AimToggle", {
     Title = "เปิดใช้งาน Aimbot ล็อคกล้อง (Camera Aimlock)",
@@ -1523,14 +1622,51 @@ AimToggle:OnChanged(function() Config.AimlockEnabled = AimToggle.Value end)
 
 local SilentAimToggle = Tabs.Combat:AddToggle("SilentAimToggle", {
     Title = "เปิดใช้งาน Silent Aim (กระสุนเลี้ยวเข้าหัวในวง FOV)",
-    Description = "กระสุนและธนูเลี้ยวเข้าหาจุดดักหน้าศัตรูโดยไม่ต้องหันกล้องตามเป๊ะๆ",
+    Description = "กระสุนและธนูเลี้ยวเข้าหาจุดดักหน้าศัตรูโดยไม่ต้องหันกล้องตาม",
     Default = false
 })
 SilentAimToggle:OnChanged(function() Config.SilentAimEnabled = SilentAimToggle.Value end)
 
+local HitboxToggle = Tabs.Combat:AddToggle("HitboxToggle", {
+    Title = "เปิดใช้งาน Hitbox Expander (ขยายหัวศัตรูให้ยิงโดนง่าย)",
+    Description = "ขยายขนาดพาร์ท Head ของศัตรูควบคู่กับ Silent Aim",
+    Default = false
+})
+HitboxToggle:OnChanged(function()
+    Config.HitboxExpanderEnabled = HitboxToggle.Value
+    if not Config.HitboxExpanderEnabled then
+        RestoreAllHitboxes()
+    end
+end)
+
+Tabs.Combat:AddSlider("HitboxSizeSlider", {
+    Title = "ขนาดหัวศัตรู (Hitbox Size Studs)",
+    Description = "ค่าแนะนำ 5 - 9 Studs (ยิงเฉียดหัวก็โดนเต็มๆ)",
+    Default = 6.5,
+    Min = 2.0,
+    Max = 15.0,
+    Rounding = 1,
+    Callback = function(val) Config.HitboxSize = val end
+})
+
+Tabs.Combat:AddSlider("HitboxTransSlider", {
+    Title = "ความโปร่งใสของกรอบหัวที่ขยาย (Hitbox Transparency)",
+    Default = 0.65,
+    Min = 0.10,
+    Max = 0.95,
+    Rounding = 2,
+    Callback = function(val) Config.HitboxTransparency = val end
+})
+
+local HitboxPartDropdown = Tabs.Combat:AddDropdown("HitboxPartDropdown", {
+    Title = "ชิ้นส่วนที่ต้องการขยายขนาด (Expand Part)",
+    Values = { "Head", "Torso", "HumanoidRootPart" },
+    Default = "Head",
+})
+HitboxPartDropdown:OnChanged(function(val) Config.HitboxTargetPart = val end)
+
 Tabs.Combat:AddSlider("SilentHitChanceSlider", {
     Title = "โอกาสกระสุนเลี้ยวเข้าเป้า (Silent Aim Hit Chance %)",
-    Description = "100% = เข้าทุกนัด | 75% = ผสมนัดพลาดให้ดูเนียน",
     Default = 100,
     Min = 10,
     Max = 100,
@@ -1538,7 +1674,6 @@ Tabs.Combat:AddSlider("SilentHitChanceSlider", {
     Callback = function(val) Config.SilentAimHitChance = val end
 })
 
--- ตั้งค่าปุ่มลัดคีย์บอร์ด (Keybinds)
 local AimKeybind = Tabs.Combat:AddKeybind("AimKeybind", {
     Title = "ปุ่มลัดเปิด/ปิด Aimbot ด่วน (Toggle Aimbot Key)",
     Mode = "Toggle",
@@ -1600,7 +1735,6 @@ local HitboxKeybind = Tabs.Combat:AddKeybind("HitboxKeybind", {
 
 local AirborneBodyToggle = Tabs.Combat:AddToggle("AirborneBodyToggle", {
     Title = "สลับเล็งลำตัวอัตโนมัติเมื่อศัตรูกระโดด (Airborne Body-Switch)",
-    Description = "ป้องกันยิงข้ามหัวเวลาศัตรูกระโดดหลบ",
     Default = true
 })
 AirborneBodyToggle:OnChanged(function() Config.AirborneBodyAim = AirborneBodyToggle.Value end)
@@ -1696,8 +1830,11 @@ LineToggle:OnChanged(function() Config.ShowTargetLine = LineToggle.Value end)
 local HUDToggle = Tabs.Combat:AddToggle("HUDToggle", { Title = "แสดงแถบสถานะด้านบนจอ (Status HUD)", Default = true })
 HUDToggle:OnChanged(function() Config.ShowStatusHUD = HUDToggle.Value end)
 
-local LockBotToggle = Tabs.Combat:AddToggle("LockBotToggle", { Title = "ล็อคบอทนักวิทยาศาสตร์ด้วย (Lock Scientists)", Default = true })
-LockBotToggle:OnChanged(function() Config.LockScientists = LockBotToggle.Value end)
+local LockBotToggle = Tabs.Combat:AddToggle("LockBotToggle", { Title = "ล็อคและขยายหัวบอทนักวิทยาศาสตร์ด้วย", Default = true })
+LockBotToggle:OnChanged(function()
+    Config.LockScientists = LockBotToggle.Value
+    Config.HitboxExpandBots = LockBotToggle.Value
+end)
 
 local WallCheckToggle = Tabs.Combat:AddToggle("WallCheckToggle", { Title = "เช็กกำแพงกั้น (SolidHit WallCheck)", Default = false })
 WallCheckToggle:OnChanged(function() Config.WallCheck = WallCheckToggle.Value end)
@@ -1781,7 +1918,7 @@ Tabs.LootESP:AddSlider("WorldDistSlider", {
 })
 
 -- ==============================================================================
--- [ปุ่มลอยสำหรับมือถือ: เปิด/ปิด UI และสลับ Silent Aim / Aimbot ด่วน]
+-- [ปุ่มลอยสำหรับมือถือ: เปิด/ปิด UI และสลับ Silent Aim ด่วน]
 -- ==============================================================================
 local MobileToggleBtn = Instance.new("TextButton")
 MobileToggleBtn.Name = "MobileToggleUI"
