@@ -1,7 +1,7 @@
 -- ==============================================================================
--- Rust Roblox Script V11 (Ultimate Stable Edition)
--- Features: Fast Predictive Aimbot (Head/Torso), Bug-Free Hitbox Expander,
---           No Recoil, Fullbright (SetAmbient Blocker), Auto Ore Spark & Full ESP
+-- TeteKubb Hub (Stable Edition - No Hitbox Expander)
+-- Features: Fast Predictive Aimbot (Head/Torso), No Recoil, Fullbright, Auto Spark & Full ESP
+-- Supports: PC & Mobile | Anti-Cheat Bypass Included
 -- ==============================================================================
 
 local Players = game:GetService("Players")
@@ -15,7 +15,7 @@ local LocalPlayer = Players.LocalPlayer
 local Camera = workspace.CurrentCamera
 
 -- ==============================================================================
--- [0] CLEANUP OLD INSTANCE & LIFECYCLE FLAG
+-- [0] CLEANUP OLD INSTANCE & LIFECYCLE FLAG (ล้างสคริปต์เก่าและคืนค่าพาร์ททั้งหมด)
 -- ==============================================================================
 local GlobalEnv = (getgenv and getgenv()) or _G
 
@@ -29,7 +29,8 @@ for _, bindName in ipairs({
     "RustV8AimbotEngine",
     "RustV9AimbotEngine",
     "RustV10AimbotEngine",
-    "RustV11AimbotEngine"
+    "RustV11AimbotEngine",
+    "TeteKubbAimbotEngine"
 }) do
     pcall(function() RunService:UnbindFromRenderStep(bindName) end)
 end
@@ -61,8 +62,8 @@ pcall(function()
     AntiCheatRemote = remFolder and remFolder:WaitForChild("Auto", 5)
 end)
 
-if hookmetamethod and not GlobalEnv._RustACBypassedV11 then
-    GlobalEnv._RustACBypassedV11 = true
+if hookmetamethod and not GlobalEnv._TeteKubbACBypassed then
+    GlobalEnv._TeteKubbACBypassed = true
     local oldNamecall
     oldNamecall = hookmetamethod(game, "__namecall", newcclosure(function(self, ...)
         local method = getnamecallmethod()
@@ -76,7 +77,7 @@ if hookmetamethod and not GlobalEnv._RustACBypassedV11 then
 end
 
 -- ==============================================================================
--- [2] GLOBAL CONFIG (ทุกฟังก์ชันเริ่มต้นเป็น false เปิด-ปิดได้ตามสั่ง 100%)
+-- [2] GLOBAL CONFIG (เริ่มต้นปิดไว้ทั้งหมด เปิด-ปิดได้ตามสั่ง 100%)
 -- ==============================================================================
 local Config = {
     -- ระบบ Aimbot ล็อคหัว / ล็อคตัว + ดักทางคนวิ่ง
@@ -99,16 +100,8 @@ local Config = {
     WallCheck = false,
     TeamCheck = false,
 
-    -- ระบบขยายดาเมจ / ขยายฮิตบ็อกซ์ (Hitbox Expander)
-    HitboxExpanderEnabled = false,
-    HitboxTargetPart = "Head", -- "Head", "Torso", "HumanoidRootPart"
-    HitboxSize = 7.0, -- ขนาดที่ขยาย (Studs)
-    HitboxTransparency = 0.65,
-    HitboxExpandBots = true,
-
     -- ปุ่มลัดคีย์บอร์ด (Keybinds)
     Key_ToggleAimbot = Enum.KeyCode.X,
-    Key_ToggleHitbox = Enum.KeyCode.Z,
     Key_SwitchPart = Enum.KeyCode.V,
     Key_ToggleFullbright = Enum.KeyCode.B,
 
@@ -334,7 +327,6 @@ local function IsHoldingMiningTool()
     return false
 end
 
--- เช็กสถานะเปิดกระเป๋าจาก InInventory และ InUI ตามลอจิกเกมจริง
 local function IsGameMenuOpen()
     local pGui = LocalPlayer:FindFirstChild("PlayerGui")
     local inv = pGui and pGui:FindFirstChild("Inventory")
@@ -392,7 +384,7 @@ local function GetCurrentWeaponBallistics()
 end
 
 -- ==============================================================================
--- [5] CHARACTER RESOLVER, TEAM CHECK & BUG-FREE HITBOX EXPANDER
+-- [5] CHARACTER RESOLVER & TEAM CHECK
 -- ==============================================================================
 local function GetPlayerCharacter(player)
     if not player then return nil end
@@ -443,113 +435,6 @@ local function IsTeammate(player)
     end
     return false
 end
-
-local OriginalHitboxData = {}
-
-local function RestorePartHitbox(part)
-    local orig = OriginalHitboxData[part]
-    if orig then
-        if part and part.Parent then
-            pcall(function()
-                part.Size = orig.Size
-                part.Transparency = orig.Transparency
-                part.CanCollide = orig.CanCollide
-                part.Massless = orig.Massless
-            end)
-        end
-        OriginalHitboxData[part] = nil
-    end
-end
-
-local function RestoreAllHitboxes()
-    for part, _ in pairs(OriginalHitboxData) do
-        RestorePartHitbox(part)
-    end
-end
-
-local function GetExpandablePart(character)
-    if not character then return nil end
-    if Config.HitboxTargetPart == "Torso" then
-        return character:FindFirstChild("Torso") or character:FindFirstChild("UpperTorso") or character:FindFirstChild("HumanoidRootPart")
-    elseif Config.HitboxTargetPart == "HumanoidRootPart" then
-        return character:FindFirstChild("HumanoidRootPart")
-    end
-    return character:FindFirstChild("Head")
-end
-
-local function ApplyHitboxToCharacter(character, shouldExpand)
-    if not character then return end
-    local hp = GetCharacterHealth(character)
-    local root = character:FindFirstChild("HumanoidRootPart") or character:FindFirstChild("Head")
-
-    local isLyingDown = root and (math.abs(root.CFrame.UpVector.Y) < 0.5)
-    local isAlive = (hp > 0) and not isLyingDown
-
-    if not shouldExpand or not isAlive then
-        for _, partName in ipairs({ "Head", "Torso", "UpperTorso", "HumanoidRootPart" }) do
-            local p = character:FindFirstChild(partName)
-            if p and OriginalHitboxData[p] then
-                RestorePartHitbox(p)
-            end
-        end
-        return
-    end
-
-    local targetPart = GetExpandablePart(character)
-    if not targetPart or not targetPart:IsA("BasePart") then return end
-
-    for _, partName in ipairs({ "Head", "Torso", "UpperTorso", "HumanoidRootPart" }) do
-        local p = character:FindFirstChild(partName)
-        if p and p ~= targetPart and OriginalHitboxData[p] then
-            RestorePartHitbox(p)
-        end
-    end
-
-    if not OriginalHitboxData[targetPart] then
-        OriginalHitboxData[targetPart] = {
-            Size = targetPart.Size,
-            Transparency = targetPart.Transparency,
-            CanCollide = targetPart.CanCollide,
-            Massless = targetPart.Massless
-        }
-    end
-
-    pcall(function()
-        targetPart.Size = Vector3.new(Config.HitboxSize, Config.HitboxSize, Config.HitboxSize)
-        targetPart.Transparency = Config.HitboxTransparency
-        targetPart.CanCollide = false
-        targetPart.Massless = true
-        targetPart.CanQuery = true
-    end)
-end
-
-task.spawn(function()
-    while ScriptRunning do
-        if Config.HitboxExpanderEnabled then
-            for _, player in ipairs(Players:GetPlayers()) do
-                if player ~= LocalPlayer then
-                    local char = GetPlayerCharacter(player)
-                    if char then
-                        ApplyHitboxToCharacter(char, not IsTeammate(player))
-                    end
-                end
-            end
-
-            if Config.HitboxExpandBots then
-                for _, botModel in ipairs(CachedScientists) do
-                    if botModel and botModel.Parent then
-                        ApplyHitboxToCharacter(botModel, true)
-                    end
-                end
-            end
-        else
-            if next(OriginalHitboxData) ~= nil then
-                RestoreAllHitboxes()
-            end
-        end
-        task.wait(0.15)
-    end
-end)
 
 -- ==============================================================================
 -- [6] REAL-TIME VELOCITY TRACKER & BALLISTICS PREDICTION
@@ -765,7 +650,7 @@ OverlayGui.Parent = SafeGuiParent
 
 local StatusHUD = Instance.new("TextLabel")
 StatusHUD.Name = "StatusHUD"
-StatusHUD.Size = UDim2.fromOffset(580, 28)
+StatusHUD.Size = UDim2.fromOffset(520, 28)
 StatusHUD.AnchorPoint = Vector2.new(0.5, 0)
 StatusHUD.Position = UDim2.new(0.5, 0, 0, 42)
 StatusHUD.BackgroundColor3 = Color3.fromRGB(20, 20, 25)
@@ -844,7 +729,7 @@ SparkMarker.Visible = false
 SparkMarker.Parent = OverlayGui
 
 -- ==============================================================================
--- [9] V6/V7 RESPONSIVE AIMBOT ENGINE (ล็อคหัว + ล็อคตัว + ดักทางคนวิ่ง)
+-- [9] RESPONSIVE AIMBOT ENGINE (ล็อคหัว + ล็อคตัว + ดักทางคนวิ่ง)
 -- ==============================================================================
 local function FindBestTargetInFOV()
     local screenCenter = Camera.ViewportSize / 2
@@ -953,12 +838,10 @@ local function UpdateAimbotStep()
     StatusHUD.Visible = (Config.ShowStatusHUD == true)
     if Config.ShowStatusHUD then
         local aimTxt = Config.AimlockEnabled and "ON" or "OFF"
-        local hbTxt = Config.HitboxExpanderEnabled and ("ON (" .. tostring(Config.HitboxSize) .. ")") or "OFF"
         local fbTxt = Config.FullbrightEnabled and "ON" or "OFF"
         StatusHUD.Text = string.format(
-            "[%s] Aimbot: %s | [%s] ขยายหัว: %s | [%s] เล็ง: %s | [%s] แสง: %s | เป้า: %s",
+            "TeteKubb | [%s] Aimbot: %s | [%s] เล็ง: %s | [%s] แสง: %s | เป้า: %s",
             GetKeyNameSafe(Config.Key_ToggleAimbot), aimTxt,
-            GetKeyNameSafe(Config.Key_ToggleHitbox), hbTxt,
             GetKeyNameSafe(Config.Key_SwitchPart), tostring(Config.TargetPartMode),
             GetKeyNameSafe(Config.Key_ToggleFullbright), fbTxt,
             tostring(CurrentTargetName)
@@ -1088,7 +971,7 @@ local function UpdateAimbotStep()
     end
 end
 
-RunService:BindToRenderStep("RustV11AimbotEngine", Enum.RenderPriority.Last.Value + 10, UpdateAimbotStep)
+RunService:BindToRenderStep("TeteKubbAimbotEngine", Enum.RenderPriority.Last.Value + 10, UpdateAimbotStep)
 AddConnection(RunService.RenderStepped:Connect(function()
     if ScriptRunning and Config.AimlockEnabled and CurrentPredictedPos and IsAimKeyActive() and not IsHoldingMiningTool() then
         Camera = workspace.CurrentCamera
@@ -1283,7 +1166,7 @@ task.spawn(function()
             or Config.ESP_StoneOre or Config.ESP_MetalOre or Config.ESP_SulfurOre
             or Config.ESP_ClothAndFood or Config.ESP_DroppedItems or Config.ESP_WorldCrates
 
-        if AnyWorldESP or Config.LockScientists or Config.HitboxExpandBots then
+        if AnyWorldESP or Config.LockScientists then
             local pbs = workspace:FindFirstChild("PlayerBuiltStructures")
             local deployables = pbs and pbs:FindFirstChild("Deployables")
             if deployables and AnyWorldESP then
@@ -1455,7 +1338,7 @@ task.spawn(function()
                 end
             end
 
-            if Config.ESP_Scientists or Config.LockScientists or Config.HitboxExpandBots or Config.ESP_ClothAndFood or Config.ESP_WorldCrates then
+            if Config.ESP_Scientists or Config.LockScientists or Config.ESP_ClothAndFood or Config.ESP_WorldCrates then
                 local monuments = workspace:FindFirstChild("Monuments")
                 if monuments then
                     for _, desc in ipairs(monuments:GetDescendants()) do
@@ -1638,22 +1521,22 @@ AddConnection(RunService.RenderStepped:Connect(function()
 end))
 
 -- ==============================================================================
--- [12] FLUENT UI SETUP & KEYBIND HANDLER
+-- [12] FLUENT UI SETUP (TeteKubb Hub) & KEYBIND HANDLER
 -- ==============================================================================
 local Fluent = loadstring(game:HttpGet("https://github.com/dawid-scripts/Fluent/releases/latest/download/main.lua"))()
 
 local Window = Fluent:CreateWindow({
-    Title = "Rust Survival Hub V11",
-    SubTitle = "Stable Aimbot + Hitbox Expander + Fullbright + ESP",
+    Title = "TeteKubb Hub",
+    SubTitle = "Pro Aimbot + No Recoil + Fullbright + ESP",
     TabWidth = 155,
-    Size = UDim2.fromOffset(620, 490),
+    Size = UDim2.fromOffset(610, 480),
     Acrylic = false,
     Theme = "Dark",
     MinimizeKey = Enum.KeyCode.RightControl
 })
 
 local Tabs = {
-    Combat = Window:AddTab({ Title = "Aimbot & ขยายหัว", Icon = "crosshair" }),
+    Combat = Window:AddTab({ Title = "Aimbot & ลดแรงดีด", Icon = "crosshair" }),
     PlayerBaseESP = Window:AddTab({ Title = "ESP คน & แสงแมพ", Icon = "users" }),
     ResourceESP = Window:AddTab({ Title = "ESP แร่ & ตี Spark", Icon = "pickaxe" }),
     LootESP = Window:AddTab({ Title = "ESP ของตก & กล่อง", Icon = "box" }),
@@ -1666,54 +1549,16 @@ local function ReadToggleVal(val, toggleObj)
 end
 
 -- ------------------------------------------------------------------------------
--- TAB 1: PRO AIMBOT & SMART HITBOX EXPANDER
+-- TAB 1: PRO AIMBOT & NO RECOIL
 -- ------------------------------------------------------------------------------
 local AimToggle = Tabs.Combat:AddToggle("AimToggle", {
     Title = "เปิดใช้งาน Aimbot ล็อคเป้า (ปุ่มลัด: X)",
-    Description = "ล็อคหัว/ตัวพร้อมคำนวณดักทางคนวิ่งอัตโนมัติ",
+    Description = "ล็อคหัว/ตัวพร้อมคำนวณดักทางคนวิ่งอัตโนมัติ (ไม่ใช้ระบบขยายหัว ดาเมจเข้า 100%)",
     Default = false
 })
 AimToggle:OnChanged(function(val)
     Config.AimlockEnabled = ReadToggleVal(val, AimToggle)
 end)
-
-local HitboxToggle = Tabs.Combat:AddToggle("HitboxToggle", {
-    Title = "เปิดใช้งานขยายฮิตบ็อกซ์ศัตรู (Hitbox Expander | ปุ่มลัด: Z)",
-    Description = "ขยายหัว/ตัวศัตรูให้ยิงโดนแทบจะตลอด ดาเมจเข้า 100% ไม่บั๊กประตู",
-    Default = false
-})
-HitboxToggle:OnChanged(function(val)
-    Config.HitboxExpanderEnabled = ReadToggleVal(val, HitboxToggle)
-    if not Config.HitboxExpanderEnabled then
-        RestoreAllHitboxes()
-    end
-end)
-
-Tabs.Combat:AddSlider("HitboxSizeSlider", {
-    Title = "ขนาดขยายหัว/ตัวศัตรู (Hitbox Size Studs)",
-    Description = "แนะนำ 6.0 - 9.0 Studs",
-    Default = 7.0,
-    Min = 2.0,
-    Max = 15.0,
-    Rounding = 1,
-    Callback = function(val) Config.HitboxSize = val end
-})
-
-Tabs.Combat:AddSlider("HitboxTransSlider", {
-    Title = "ความโปร่งใสของฮิตบ็อกซ์ที่ขยาย (Hitbox Transparency)",
-    Default = 0.65,
-    Min = 0.10,
-    Max = 0.95,
-    Rounding = 2,
-    Callback = function(val) Config.HitboxTransparency = val end
-})
-
-local HitboxPartDropdown = Tabs.Combat:AddDropdown("HitboxPartDropdown", {
-    Title = "ส่วนที่ต้องการขยายขนาด (Expand Part)",
-    Values = { "Head", "Torso", "HumanoidRootPart" },
-    Default = "Head",
-})
-HitboxPartDropdown:OnChanged(function(val) Config.HitboxTargetPart = val end)
 
 local TargetPartDropdown = Tabs.Combat:AddDropdown("TargetPartDropdown", {
     Title = "ส่วนที่ต้องการให้ Aimbot ล็อค (ปุ่มลัดสลับ หัว/ตัว: V)",
@@ -1821,13 +1666,11 @@ Tabs.Combat:AddSlider("RecoilScaleSlider", {
 })
 
 local LockBotToggle = Tabs.Combat:AddToggle("LockBotToggle", {
-    Title = "ล็อคและขยายหัวบอทนักวิทยาศาสตร์ด้วย",
+    Title = "ล็อคเป้าบอทนักวิทยาศาสตร์ด้วย (Lock Scientists)",
     Default = true
 })
 LockBotToggle:OnChanged(function(val)
-    local s = ReadToggleVal(val, LockBotToggle)
-    Config.LockScientists = s
-    Config.HitboxExpandBots = s
+    Config.LockScientists = ReadToggleVal(val, LockBotToggle)
 end)
 
 local WallCheckToggle = Tabs.Combat:AddToggle("WallCheckToggle", {
@@ -1937,37 +1780,29 @@ Tabs.LootESP:AddSlider("WorldDistSlider", {
 })
 
 -- ==============================================================================
--- [ระบบปุ่มลัดคีย์บอร์ด X / Z / V / B]
+-- [ระบบปุ่มลัดคีย์บอร์ด X / V / B (ตัดปุ่มขยายหัวออกแล้ว)]
 -- ==============================================================================
 AddConnection(UserInputService.InputBegan:Connect(function(input, gameProcessed)
     if gameProcessed or not ScriptRunning then return end
     if input.KeyCode == Config.Key_ToggleAimbot then
         AimToggle:SetValue(not Config.AimlockEnabled)
         Fluent:Notify({
-            Title = "Aimbot (ปุ่ม X)",
+            Title = "TeteKubb Hub (ปุ่ม X)",
             Content = Config.AimlockEnabled and "เปิด Aimbot ล็อคเป้าแล้ว" or "ปิด Aimbot แล้ว",
-            Duration = 1.5
-        })
-    elseif input.KeyCode == Config.Key_ToggleHitbox then
-        HitboxToggle:SetValue(not Config.HitboxExpanderEnabled)
-        Fluent:Notify({
-            Title = "Hitbox Expander (ปุ่ม Z)",
-            Content = Config.HitboxExpanderEnabled and "เปิดขยายฮิตบ็อกซ์แล้ว" or "ปิดขยายฮิตบ็อกซ์แล้ว",
             Duration = 1.5
         })
     elseif input.KeyCode == Config.Key_SwitchPart then
         local nextMode = (Config.TargetPartMode == "Head") and "Torso" or "Head"
         TargetPartDropdown:SetValue(nextMode)
-        HitboxPartDropdown:SetValue(nextMode)
         Fluent:Notify({
-            Title = "สลับจุดล็อค (ปุ่ม V)",
-            Content = "เปลี่ยนเป็นล็อคและขยาย: " .. nextMode,
+            Title = "TeteKubb Hub (ปุ่ม V)",
+            Content = "สลับจุดล็อคเป็น: " .. nextMode,
             Duration = 1.5
         })
     elseif input.KeyCode == Config.Key_ToggleFullbright then
         FullbrightToggle:SetValue(not Config.FullbrightEnabled)
         Fluent:Notify({
-            Title = "Fullbright (ปุ่ม B)",
+            Title = "TeteKubb Hub (ปุ่ม B)",
             Content = Config.FullbrightEnabled and "เปิดแสงสว่าง + ตัดหมอกแล้ว" or "คืนค่าแสงแมพปกติแล้ว",
             Duration = 1.5
         })
@@ -1984,8 +1819,8 @@ MobileToggleBtn.Position = UDim2.new(0, 16, 0.45, -26)
 MobileToggleBtn.BackgroundColor3 = Color3.fromRGB(30, 30, 35)
 MobileToggleBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
 MobileToggleBtn.Font = Enum.Font.GothamBold
-MobileToggleBtn.TextSize = 12
-MobileToggleBtn.Text = "HUB"
+MobileToggleBtn.TextSize = 11
+MobileToggleBtn.Text = "TETE"
 MobileToggleBtn.Draggable = true
 MobileToggleBtn.Active = true
 MobileToggleBtn.Parent = OverlayGui
@@ -2006,7 +1841,7 @@ QuickLockBtn.BackgroundColor3 = Color3.fromRGB(45, 30, 65)
 QuickLockBtn.TextColor3 = Color3.fromRGB(220, 180, 255)
 QuickLockBtn.Font = Enum.Font.GothamBold
 QuickLockBtn.TextSize = 11
-QuickLockBtn.Text = "LOCK"
+QuickLockBtn.Text = "AIM"
 QuickLockBtn.Draggable = true
 QuickLockBtn.Active = true
 QuickLockBtn.Parent = OverlayGui
@@ -2016,19 +1851,16 @@ LockBtnCorner.CornerRadius = UDim.new(0, 12)
 LockBtnCorner.Parent = QuickLockBtn
 
 AddConnection(QuickLockBtn.MouseButton1Click:Connect(function()
-    local nextState = not Config.AimlockEnabled
-    AimToggle:SetValue(nextState)
-    HitboxToggle:SetValue(nextState)
+    AimToggle:SetValue(not Config.AimlockEnabled)
 end))
 
 GlobalEnv.RustHubCleanup = function()
     ScriptRunning = false
-    pcall(function() RunService:UnbindFromRenderStep("RustV11AimbotEngine") end)
+    pcall(function() RunService:UnbindFromRenderStep("TeteKubbAimbotEngine") end)
     for _, conn in ipairs(ActiveConnections) do
         pcall(function() conn:Disconnect() end)
     end
     ActiveConnections = {}
-    pcall(RestoreAllHitboxes)
     pcall(function() ApplyFullbrightState(false) end)
     if OverlayGui and OverlayGui.Parent then
         pcall(function() OverlayGui:Destroy() end)
