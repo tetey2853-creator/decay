@@ -1,7 +1,7 @@
 -- ==============================================================================
--- TeteKubb Hub (Stable Edition - No Hitbox Expander)
--- Features: Fast Predictive Aimbot (Head/Torso), No Recoil, Fullbright, Auto Spark & Full ESP
--- Supports: PC & Mobile | Anti-Cheat Bypass Included
+-- TeteKubb Hub (V11 Base - PC Anti-Jitter Fix & No Hitbox Expander)
+-- Features: Smooth Predictive Aimbot (PC & Mobile Identical), No Recoil,
+--           Fullbright (Key: B), Auto Ore Spark & Full Modular ESP
 -- ==============================================================================
 
 local Players = game:GetService("Players")
@@ -15,7 +15,7 @@ local LocalPlayer = Players.LocalPlayer
 local Camera = workspace.CurrentCamera
 
 -- ==============================================================================
--- [0] CLEANUP OLD INSTANCE & LIFECYCLE FLAG (ล้างสคริปต์เก่าและคืนค่าพาร์ททั้งหมด)
+-- [0] CLEANUP OLD INSTANCE & LIFECYCLE FLAG
 -- ==============================================================================
 local GlobalEnv = (getgenv and getgenv()) or _G
 
@@ -62,8 +62,8 @@ pcall(function()
     AntiCheatRemote = remFolder and remFolder:WaitForChild("Auto", 5)
 end)
 
-if hookmetamethod and not GlobalEnv._TeteKubbACBypassed then
-    GlobalEnv._TeteKubbACBypassed = true
+if hookmetamethod and not GlobalEnv._RustACBypassedV11 then
+    GlobalEnv._RustACBypassedV11 = true
     local oldNamecall
     oldNamecall = hookmetamethod(game, "__namecall", newcclosure(function(self, ...)
         local method = getnamecallmethod()
@@ -77,20 +77,20 @@ if hookmetamethod and not GlobalEnv._TeteKubbACBypassed then
 end
 
 -- ==============================================================================
--- [2] GLOBAL CONFIG (เริ่มต้นปิดไว้ทั้งหมด เปิด-ปิดได้ตามสั่ง 100%)
+-- [2] GLOBAL CONFIG (เริ่มต้นเป็น false ทั้งหมด เปิด-ปิดได้ตามสั่ง 100%)
 -- ==============================================================================
 local Config = {
-    -- ระบบ Aimbot ล็อคหัว / ล็อคตัว + ดักทางคนวิ่ง
+    -- ระบบ Aimbot ล็อคหัว / ล็อคตัว + ดักทางคนวิ่ง (ตัดขยายหัวออกแล้ว)
     AimlockEnabled = false,
     AimActivationMode = "Always", -- "Always" (ล็อคทันทีในวง FOV), "HoldClick" (ล็อคตอนกดคลิกยิง/ซูม)
     TargetPartMode = "Head", -- "Head" (ล็อคหัว), "Torso" (ล็อคตัว), "ClosestPart" (ส่วนที่ใกล้เป้าสุด)
     AirborneBodyAim = true, -- สลับล็อคลำตัวอัตโนมัติเวลาศัตรูกระโดด
     StickyAim = true, -- ล็อคเกาะเป้าหมายเดิมไม่สวิงมั่ว
-    AimSmoothness = 0.55, -- ความไวในการดูดตามคนวิ่ง (0.10 - 0.95)
+    AimSmoothness = 0.50, -- ความไวในการดูดตามคนวิ่ง (0.10 - 0.95)
     UsePrediction = true, -- คำนวณดักหน้าเวลาคนวิ่ง
-    PredictionMultiplier = 1.10, -- ตัวคูณระยะดักหน้าคนวิ่ง
+    PredictionMultiplier = 1.05, -- ตัวคูณระยะดักหน้าคนวิ่ง
     BulletDropCompensation = true, -- ชดเชยกระสุนตกตามระยะทาง
-    BreakawayThreshold = 9.5, -- แรงสะบัดเมาส์เพื่อดึงเป้าหลุดล็อค
+    BreakawayThreshold = 12.0, -- แรงสะบัดเมาส์เพื่อดึงเป้าหลุดล็อค
     MaxAimDistance = 900,
     FOVRadius = 150,
     ShowFOV = false,
@@ -437,7 +437,7 @@ local function IsTeammate(player)
 end
 
 -- ==============================================================================
--- [6] REAL-TIME VELOCITY TRACKER & BALLISTICS PREDICTION
+-- [6] STABLE VELOCITY TRACKER & BALLISTICS PREDICTION (ไร้การสั่นบน PC)
 -- ==============================================================================
 local VelocityTracker = {}
 
@@ -450,29 +450,37 @@ local function GetTargetVelocity(model, rootPart)
     if not record then
         VelocityTracker[model] = {
             LastPos = currentPos,
-            SmoothedVel = rootPart.AssemblyLinearVelocity or Vector3.zero,
+            SmoothedVel = Vector3.zero,
             LastTime = now
         }
-        return VelocityTracker[model].SmoothedVel
+        return Vector3.zero
     end
 
     local dt = now - record.LastTime
-    if dt >= 0.008 then
+    -- คำนวณทุกๆ 0.04 วินาทีเพื่อป้องกันค่ากระโดดระหว่างเฟรมบน PC ที่มี FPS สูง
+    if dt >= 0.04 then
         local deltaVel = (currentPos - record.LastPos) / dt
         local engineVel = rootPart.AssemblyLinearVelocity or Vector3.zero
 
-        local measuredVel = deltaVel
-        if engineVel.Magnitude > 1 and deltaVel.Magnitude > 1 then
-            measuredVel = (deltaVel * 0.65) + (engineVel * 0.35)
-        elseif engineVel.Magnitude > deltaVel.Magnitude then
-            measuredVel = engineVel
+        local rawVel = engineVel
+        if engineVel.Magnitude > 0.5 then
+            rawVel = (engineVel * 0.70) + (deltaVel * 0.30)
+        elseif deltaVel.Magnitude > 2.5 and deltaVel.Magnitude < 120 then
+            rawVel = deltaVel
+        else
+            rawVel = Vector3.zero
         end
 
-        if measuredVel.Magnitude > 180 then
-            measuredVel = engineVel
+        if rawVel.Magnitude > 140 then
+            rawVel = Vector3.zero
         end
 
-        record.SmoothedVel = record.SmoothedVel:Lerp(measuredVel, math.clamp(dt * 18, 0.15, 0.85))
+        -- กรองความเร็วให้สมูทนิ่งสนิท ไม่ทำให้เป้าส่ายซ้ายขวา
+        record.SmoothedVel = record.SmoothedVel:Lerp(rawVel, 0.35)
+        if record.SmoothedVel.Magnitude < 1.8 then
+            record.SmoothedVel = Vector3.zero
+        end
+
         record.LastPos = currentPos
         record.LastTime = now
     end
@@ -496,11 +504,11 @@ local function CalculatePredictedAimPosition(targetPart, targetModel)
     bulletSpeed = math.max(bulletSpeed, 80)
 
     local timeToHit = distance / bulletSpeed
-    local futurePos1 = basePos + Vector3.new(velocity.X, velocity.Y * 0.35, velocity.Z) * timeToHit
+    local futurePos1 = basePos + Vector3.new(velocity.X, velocity.Y * 0.25, velocity.Z) * timeToHit
     timeToHit = (futurePos1 - camPos).Magnitude / bulletSpeed
 
     local horizontalLead = Vector3.new(velocity.X, 0, velocity.Z) * (timeToHit * Config.PredictionMultiplier)
-    local verticalLead = Vector3.new(0, velocity.Y * 0.30 * timeToHit * Config.PredictionMultiplier, 0)
+    local verticalLead = Vector3.new(0, velocity.Y * 0.25 * timeToHit * Config.PredictionMultiplier, 0)
 
     local dropOffset = Vector3.zero
     if Config.BulletDropCompensation and distance > 25 then
@@ -729,7 +737,7 @@ SparkMarker.Visible = false
 SparkMarker.Parent = OverlayGui
 
 -- ==============================================================================
--- [9] RESPONSIVE AIMBOT ENGINE (ล็อคหัว + ล็อคตัว + ดักทางคนวิ่ง)
+-- [9] V11 SMOOTH CAMERA AIMBOT ENGINE (ทำให้ในคอมนิ่งเหมือนมือถือ 100%)
 -- ==============================================================================
 local function FindBestTargetInFOV()
     local screenCenter = Camera.ViewportSize / 2
@@ -822,11 +830,12 @@ local function GetKeyNameSafe(keyItem)
     return tostring(keyItem or "None")
 end
 
-local function UpdateAimbotStep()
+local function UpdateAimbotStep(dt)
     if not ScriptRunning then return end
     Camera = workspace.CurrentCamera
     if not Camera then return end
 
+    local frameDt = math.clamp(dt or (1 / 60), 0.001, 0.1)
     local screenCenter = Camera.ViewportSize / 2
 
     FOVCircleFrame.Visible = (Config.ShowFOV == true)
@@ -840,7 +849,7 @@ local function UpdateAimbotStep()
         local aimTxt = Config.AimlockEnabled and "ON" or "OFF"
         local fbTxt = Config.FullbrightEnabled and "ON" or "OFF"
         StatusHUD.Text = string.format(
-            "TeteKubb | [%s] Aimbot: %s | [%s] เล็ง: %s | [%s] แสง: %s | เป้า: %s",
+            "TeteKubb Hub | [%s] Aimbot: %s | [%s] เล็ง: %s | [%s] แสง: %s | เป้า: %s",
             GetKeyNameSafe(Config.Key_ToggleAimbot), aimTxt,
             GetKeyNameSafe(Config.Key_SwitchPart), tostring(Config.TargetPartMode),
             GetKeyNameSafe(Config.Key_ToggleFullbright), fbTxt,
@@ -861,7 +870,8 @@ local function UpdateAimbotStep()
 
             local isAttacking = UserInputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton1) or IsMobileAttacking
             if isAttacking and IsHoldingMiningTool() and not IsGameMenuOpen() then
-                Camera.CFrame = Camera.CFrame:Lerp(CFrame.lookAt(Camera.CFrame.Position, sparkPart.Position), 0.60)
+                local alpha = 1 - ((1 - 0.55) ^ (frameDt * 60))
+                Camera.CFrame = Camera.CFrame:Lerp(CFrame.lookAt(Camera.CFrame.Position, sparkPart.Position), math.clamp(alpha, 0.05, 0.95))
             end
         else
             SparkMarker.Visible = false
@@ -934,33 +944,30 @@ local function UpdateAimbotStep()
         if IsAimKeyActive() and not IsHoldingMiningTool() then
             local mouseDelta = UserInputService:GetMouseDelta()
             local deltaMag = mouseDelta.Magnitude
-            local effectiveSmooth = Config.AimSmoothness
+            local baseSmooth = Config.AimSmoothness
 
-            -- เร่งความไวในการเกาะเป้าอัตโนมัติเมื่อเป้าหมายกำลังวิ่งสปรินต์
+            -- เร่งความไวในการเกาะเป้าเมื่อเป้าหมายกำลังวิ่งสปรินต์
             local targetVel = GetTargetVelocity(CurrentLockedModel, CurrentLockedModel:FindFirstChild("HumanoidRootPart") or CurrentLockedPart)
             if targetVel.Magnitude > 8 then
-                effectiveSmooth = math.clamp(effectiveSmooth * 1.40, 0.20, 0.96)
+                baseSmooth = math.clamp(baseSmooth * 1.30, 0.15, 0.92)
             end
 
             local isBreakingAway = false
             if deltaMag >= Config.BreakawayThreshold and predOnScreen then
                 local toTarget = Vector2.new(predScreen.X, predScreen.Y) - screenCenter
-                if toTarget.Magnitude > 2 and mouseDelta.Unit:Dot(toTarget.Unit) < -0.15 then
+                if toTarget.Magnitude > 4 and mouseDelta.Unit:Dot(toTarget.Unit) < -0.20 then
                     isBreakingAway = true
                 end
             end
 
             if not isBreakingAway and CurrentPredictedPos then
-                local goalCFrame = CFrame.lookAt(Camera.CFrame.Position, CurrentPredictedPos)
-                Camera.CFrame = Camera.CFrame:Lerp(goalCFrame, effectiveSmooth)
+                -- ใช้วิธีคำนวณ CFrame:Lerp แบบเดียวกับบนมือถือ 100% (ตัด mousemoverel ที่ทำให้คอมสั่นออก)
+                -- และชดเชยด้วย frameDt เพื่อให้สมูทเท่ากันทุกเฟรมเรตบน PC
+                local frameAlpha = 1 - ((1 - baseSmooth) ^ (frameDt * 60))
+                frameAlpha = math.clamp(frameAlpha, 0.05, 0.96)
 
-                if mousemoverel and predOnScreen then
-                    local dx = math.round((predScreen.X - screenCenter.X) * (effectiveSmooth * 0.55))
-                    local dy = math.round((predScreen.Y - screenCenter.Y) * (effectiveSmooth * 0.55))
-                    if math.abs(dx) >= 1 or math.abs(dy) >= 1 then
-                        pcall(mousemoverel, dx, dy)
-                    end
-                end
+                local goalCFrame = CFrame.lookAt(Camera.CFrame.Position, CurrentPredictedPos)
+                Camera.CFrame = Camera.CFrame:Lerp(goalCFrame, frameAlpha)
             end
         end
     else
@@ -971,15 +978,8 @@ local function UpdateAimbotStep()
     end
 end
 
+-- ใช้ BindToRenderStep เพียงจุดเดียวเหมือนในมือถือ ไม่ซ้อนกับ RenderStepped
 RunService:BindToRenderStep("TeteKubbAimbotEngine", Enum.RenderPriority.Last.Value + 10, UpdateAimbotStep)
-AddConnection(RunService.RenderStepped:Connect(function()
-    if ScriptRunning and Config.AimlockEnabled and CurrentPredictedPos and IsAimKeyActive() and not IsHoldingMiningTool() then
-        Camera = workspace.CurrentCamera
-        if Camera then
-            Camera.CFrame = Camera.CFrame:Lerp(CFrame.lookAt(Camera.CFrame.Position, CurrentPredictedPos), Config.AimSmoothness)
-        end
-    end
-end))
 
 -- ==============================================================================
 -- [10] HELPER FUNCTIONS FOR ESP & BACKGROUND SCANNER
@@ -1527,9 +1527,9 @@ local Fluent = loadstring(game:HttpGet("https://github.com/dawid-scripts/Fluent/
 
 local Window = Fluent:CreateWindow({
     Title = "TeteKubb Hub",
-    SubTitle = "Pro Aimbot + No Recoil + Fullbright + ESP",
+    SubTitle = "Smooth PC & Mobile Aimbot + Fullbright + ESP",
     TabWidth = 155,
-    Size = UDim2.fromOffset(610, 480),
+    Size = UDim2.fromOffset(620, 480),
     Acrylic = false,
     Theme = "Dark",
     MinimizeKey = Enum.KeyCode.RightControl
@@ -1549,11 +1549,11 @@ local function ReadToggleVal(val, toggleObj)
 end
 
 -- ------------------------------------------------------------------------------
--- TAB 1: PRO AIMBOT & NO RECOIL
+-- TAB 1: PRO AIMBOT (PC & MOBILE SMOOTH LOCK)
 -- ------------------------------------------------------------------------------
 local AimToggle = Tabs.Combat:AddToggle("AimToggle", {
     Title = "เปิดใช้งาน Aimbot ล็อคเป้า (ปุ่มลัด: X)",
-    Description = "ล็อคหัว/ตัวพร้อมคำนวณดักทางคนวิ่งอัตโนมัติ (ไม่ใช้ระบบขยายหัว ดาเมจเข้า 100%)",
+    Description = "ล็อคหัว/ตัวนิ่งสนิททั้งในคอมและมือถือ พร้อมคำนวณดักทางคนวิ่ง",
     Default = false
 })
 AimToggle:OnChanged(function(val)
@@ -1615,8 +1615,8 @@ Tabs.Combat:AddSlider("FOVRadiusSlider", {
 
 Tabs.Combat:AddSlider("SmoothnessSlider", {
     Title = "ความไวในการล็อคตามคนวิ่ง (Aim Speed)",
-    Description = "0.55 = ตามคนวิ่งทันและสมูท | 0.85 = ล็อคติดทันที",
-    Default = 0.55,
+    Description = "0.50 = นิ่งสมูทเหมือนมือถือ | 0.85 = เกาะติดหัวไวมาก",
+    Default = 0.50,
     Min = 0.10,
     Max = 0.95,
     Rounding = 2,
@@ -1631,7 +1631,7 @@ PredictToggle:OnChanged(function(val) Config.UsePrediction = ReadToggleVal(val, 
 
 Tabs.Combat:AddSlider("PredictionMultSlider", {
     Title = "ตัวคูณระยะดักหน้าคนวิ่ง (Prediction Multiplier)",
-    Default = 1.10,
+    Default = 1.05,
     Min = 0.50,
     Max = 2.00,
     Rounding = 2,
@@ -1666,7 +1666,7 @@ Tabs.Combat:AddSlider("RecoilScaleSlider", {
 })
 
 local LockBotToggle = Tabs.Combat:AddToggle("LockBotToggle", {
-    Title = "ล็อคเป้าบอทนักวิทยาศาสตร์ด้วย (Lock Scientists)",
+    Title = "ล็อคบอทนักวิทยาศาสตร์ด้วย (Lock Scientists)",
     Default = true
 })
 LockBotToggle:OnChanged(function(val)
@@ -1780,7 +1780,7 @@ Tabs.LootESP:AddSlider("WorldDistSlider", {
 })
 
 -- ==============================================================================
--- [ระบบปุ่มลัดคีย์บอร์ด X / V / B (ตัดปุ่มขยายหัวออกแล้ว)]
+-- [ระบบปุ่มลัดคีย์บอร์ด X / V / B]
 -- ==============================================================================
 AddConnection(UserInputService.InputBegan:Connect(function(input, gameProcessed)
     if gameProcessed or not ScriptRunning then return end
@@ -1795,14 +1795,14 @@ AddConnection(UserInputService.InputBegan:Connect(function(input, gameProcessed)
         local nextMode = (Config.TargetPartMode == "Head") and "Torso" or "Head"
         TargetPartDropdown:SetValue(nextMode)
         Fluent:Notify({
-            Title = "TeteKubb Hub (ปุ่ม V)",
-            Content = "สลับจุดล็อคเป็น: " .. nextMode,
+            Title = "สลับจุดล็อค (ปุ่ม V)",
+            Content = "เปลี่ยนจุดล็อคเป็น: " .. nextMode,
             Duration = 1.5
         })
     elseif input.KeyCode == Config.Key_ToggleFullbright then
         FullbrightToggle:SetValue(not Config.FullbrightEnabled)
         Fluent:Notify({
-            Title = "TeteKubb Hub (ปุ่ม B)",
+            Title = "Fullbright (ปุ่ม B)",
             Content = Config.FullbrightEnabled and "เปิดแสงสว่าง + ตัดหมอกแล้ว" or "คืนค่าแสงแมพปกติแล้ว",
             Duration = 1.5
         })
@@ -1841,7 +1841,7 @@ QuickLockBtn.BackgroundColor3 = Color3.fromRGB(45, 30, 65)
 QuickLockBtn.TextColor3 = Color3.fromRGB(220, 180, 255)
 QuickLockBtn.Font = Enum.Font.GothamBold
 QuickLockBtn.TextSize = 11
-QuickLockBtn.Text = "AIM"
+QuickLockBtn.Text = "LOCK"
 QuickLockBtn.Draggable = true
 QuickLockBtn.Active = true
 QuickLockBtn.Parent = OverlayGui
