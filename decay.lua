@@ -1,7 +1,7 @@
 -- ==============================================================================
--- TeteKubb Hub (V14.1 - Fixed GeneratedMonuments Error + Hyper-Smooth + Vacuum)
--- Features: 0-Lag Cached ESP, Auto-Loot Crates/Bags/Ground, Target Loadout HUD,
---           Smooth Predictive Aimbot, No Recoil, Fullbright (B), Auto Ore Spark
+-- TeteKubb Hub (V14.2 - Anti-Admin + Fixed GeneratedMonuments + Auto-Loot Vacuum)
+-- Features: Anti-Admin (WaveScripts / mkrejd), 0-Lag Cached ESP, Auto-Loot Vacuum,
+--           Target Loadout HUD, Smooth Predictive Aimbot, No Recoil, Fullbright (B)
 -- ==============================================================================
 
 local Players = game:GetService("Players")
@@ -10,6 +10,8 @@ local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
 local Lighting = game:GetService("Lighting")
 local CoreGui = game:GetService("CoreGui")
+local TeleportService = game:GetService("TeleportService")
+local HttpService = game:GetService("HttpService")
 
 local LocalPlayer = Players.LocalPlayer
 local Camera = workspace.CurrentCamera
@@ -80,6 +82,10 @@ end
 -- [2] GLOBAL CONFIG
 -- ==============================================================================
 local Config = {
+    -- ระบบป้องกันแอดมิน (เปิดใช้งานอัตโนมัติทันทีที่รัน)
+    AntiAdminEnabled = true,
+    AntiAdminAction = "Kick", -- "Kick" (เตะออกทันที) หรือ "ServerHop" (ย้ายเซิร์ฟหนี)
+
     -- ระบบ Aimbot
     AimlockEnabled = false,
     AimActivationMode = "Always",
@@ -167,6 +173,83 @@ local CurrentPredictedPos = nil
 local CurrentTargetName = "None"
 local CachedScientists = {}
 local CachedNearestSpark = nil
+
+-- ==============================================================================
+-- [2.5] ANTI-ADMIN DETECTOR (ตรวจจับแอดมิน WaveScripts & mkrejd พร้อมหนีทันที)
+-- ==============================================================================
+local AdminBlacklist = {
+    ["wavescripts"] = true,
+    ["mkrejd"] = true,
+}
+
+local function ExecuteAdminEvade(adminPlayer)
+    if not Config.AntiAdminEnabled then return end
+    local adminInfo = string.format("%s (@%s)", tostring(adminPlayer.DisplayName), tostring(adminPlayer.Name))
+
+    if GlobalEnv.RustHubCleanup then
+        pcall(GlobalEnv.RustHubCleanup)
+    end
+
+    if Config.AntiAdminAction == "ServerHop" then
+        task.spawn(function()
+            pcall(function()
+                local url = string.format("https://games.roblox.com/v1/games/%d/servers/Public?sortOrder=Asc&limit=100", game.PlaceId)
+                local res = HttpService:JSONDecode(game:HttpGet(url))
+                if res and res.data then
+                    for _, srv in ipairs(res.data) do
+                        if type(srv) == "table" and srv.id ~= game.JobId and srv.playing < srv.maxPlayers then
+                            TeleportService:TeleportToPlaceInstance(game.PlaceId, srv.id, LocalPlayer)
+                            break
+                        end
+                    end
+                end
+                TeleportService:Teleport(game.PlaceId, LocalPlayer)
+            end)
+        end)
+        LocalPlayer:Kick("⚠️ [TeteKubb Anti-Admin] ตรวจพบแอดมิน " .. adminInfo .. " เข้าเซิร์ฟ! กำลังย้ายเซิร์ฟหนีทันที")
+    else
+        LocalPlayer:Kick("⚠️ [TeteKubb Anti-Admin] ตรวจพบแอดมิน " .. adminInfo .. " อยู่ในเซิร์ฟ! เตะออกกันโดนแบนเรียบร้อย")
+    end
+end
+
+local function CheckIfPlayerIsAdmin(player)
+    if not player or player == LocalPlayer then return false end
+    local lowerName = string.lower(tostring(player.Name))
+    local lowerDisplay = string.lower(tostring(player.DisplayName))
+
+    if AdminBlacklist[lowerName] or AdminBlacklist[lowerDisplay] then
+        ExecuteAdminEvade(player)
+        return true
+    end
+    return false
+end
+
+local function ScanAllPlayersForAdmin()
+    if not Config.AntiAdminEnabled then return end
+    for _, player in ipairs(Players:GetPlayers()) do
+        if CheckIfPlayerIsAdmin(player) then
+            break
+        end
+    end
+end
+
+-- เช็คทันทีตั้งแต่เริ่มรันสคริปต์ และดักจับคนเข้าใหม่ตลอดเวลา
+ScanAllPlayersForAdmin()
+
+AddConnection(Players.PlayerAdded:Connect(function(player)
+    if Config.AntiAdminEnabled then
+        CheckIfPlayerIsAdmin(player)
+    end
+end))
+
+task.spawn(function()
+    while ScriptRunning do
+        if Config.AntiAdminEnabled then
+            pcall(ScanAllPlayersForAdmin)
+        end
+        task.wait(1.5)
+    end
+end)
 
 -- ==============================================================================
 -- [3] FULLBRIGHT, TERRAIN GRASS & SETAMBIENT BLOCKER
@@ -1145,7 +1228,7 @@ local function UpdateAimbotStep(dt)
         local aimTxt = Config.AimlockEnabled and "ON" or "OFF"
         local fbTxt = Config.FullbrightEnabled and "ON" or "OFF"
         local newHudText = string.format(
-            "TeteKubb V14.1 | [%s] Aimbot: %s | [%s] เล็ง: %s | [%s] แสง: %s | เป้า: %s",
+            "TeteKubb V14.2 | [%s] Aimbot: %s | [%s] เล็ง: %s | [%s] แสง: %s | เป้า: %s",
             GetKeyNameSafe(Config.Key_ToggleAimbot), aimTxt,
             GetKeyNameSafe(Config.Key_SwitchPart), tostring(Config.TargetPartMode),
             GetKeyNameSafe(Config.Key_ToggleFullbright), fbTxt,
@@ -1304,7 +1387,7 @@ end
 RunService:BindToRenderStep("TeteKubbAimbotEngine", Enum.RenderPriority.Last.Value + 10, UpdateAimbotStep)
 
 -- ==============================================================================
--- [10] SHALLOW NON-BLOCKING WORLD INDEXER & AUTO-LOOT VACUUM (FIXED BASEPART CHECK)
+-- [10] SHALLOW NON-BLOCKING WORLD INDEXER & AUTO-LOOT VACUUM
 -- ==============================================================================
 local UserIdNameCache = {}
 
@@ -1412,7 +1495,6 @@ local function IsScientistBot(obj)
     return false, nil
 end
 
--- แก้ไขบั๊ก: บังคับตรวจสอบ :IsA("BasePart") ทุกตัว เพื่อไม่ให้คืนค่า Model ที่ชื่อ "Top"
 local function GetTargetPart(model)
     if not model then return nil end
     if model:IsA("BasePart") then return model end
@@ -2200,13 +2282,13 @@ AddConnection(RunService.RenderStepped:Connect(function()
 end))
 
 -- ==============================================================================
--- [12] FLUENT UI SETUP (TeteKubb Hub V14.1) & KEYBIND HANDLER
+-- [12] FLUENT UI SETUP (TeteKubb Hub V14.2) & KEYBIND HANDLER
 -- ==============================================================================
 local Fluent = loadstring(game:HttpGet("https://github.com/dawid-scripts/Fluent/releases/latest/download/main.lua"))()
 
 local Window = Fluent:CreateWindow({
-    Title = "TeteKubb Hub V14.1",
-    SubTitle = "Fixed Lighthouse Bug + Auto-Loot Vacuum + Inspector",
+    Title = "TeteKubb Hub V14.2",
+    SubTitle = "Anti-Admin + Auto-Loot Vacuum + Inspector",
     TabWidth = 155,
     Size = UDim2.fromOffset(640, 520),
     Acrylic = false,
@@ -2377,8 +2459,29 @@ local TeamCheckToggle = Tabs.Combat:AddToggle("TeamCheckToggle", {
 TeamCheckToggle:OnChanged(function(val) Config.TeamCheck = ReadToggleVal(val, TeamCheckToggle) end)
 
 -- ------------------------------------------------------------------------------
--- TAB 2: FULLBRIGHT & ESP ผู้เล่น / ตู้ TC / เตียง / กับดัก
+-- TAB 2: ANTI-ADMIN, FULLBRIGHT & ESP ผู้เล่น / ตู้ TC / เตียง / กับดัก
 -- ------------------------------------------------------------------------------
+local AntiAdminToggle = Tabs.PlayerBaseESP:AddToggle("AntiAdminToggle", {
+    Title = "ป้องกันแอดมิน: เตะออก/หนีทันทีเมื่อเจอแอดมิน (Anti-Admin)",
+    Description = "ตรวจจับแอดมิน WaveScripts และ mkrejd ตลอดเวลา (เปิดไว้เป็นค่าเริ่มต้น)",
+    Default = true
+})
+AntiAdminToggle:OnChanged(function(val)
+    Config.AntiAdminEnabled = ReadToggleVal(val, AntiAdminToggle)
+    if Config.AntiAdminEnabled then
+        ScanAllPlayersForAdmin()
+    end
+end)
+
+local AntiAdminModeDropdown = Tabs.PlayerBaseESP:AddDropdown("AntiAdminModeDropdown", {
+    Title = "รูปแบบการหนีเมื่อเจอแอดมิน (Evade Action)",
+    Values = { "Kick", "ServerHop" },
+    Default = "Kick",
+})
+AntiAdminModeDropdown:OnChanged(function(val)
+    Config.AntiAdminAction = val
+end)
+
 local FullbrightToggle = Tabs.PlayerBaseESP:AddToggle("FullbrightToggle", {
     Title = "เปิดใช้งาน Fullbright & ตัดหมอก (ปุ่มลัด: B)",
     Description = "สว่างเหมือนกลางวันตลอดเวลาและบล็อกรีโมท TimeService.SetAmbient",
